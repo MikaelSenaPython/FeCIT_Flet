@@ -1,0 +1,6 @@
+name: IA - Revolução e Impacto
+version: 1.0.0
+build_number: 1
+project_name: com.mikael.meuapp
+icon: assets/icon.png
+assets_dir: assets
