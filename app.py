@@ -5,7 +5,7 @@ from datetime import datetime
 # ==============================================================================
 # 1. CLASSE DE ESTADO E DADOS GLOBAIS
 # ==============================================================================
-# teste
+
 # Dados do Quiz (pode ficar aqui ou dentro da classe, como preferir)
 quiz_questions = [
     {
