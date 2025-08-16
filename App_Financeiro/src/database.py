@@ -6,6 +6,8 @@ DB_FILE = "finance.db"
 def conectar():
     """Conecta ao banco de dados SQLite e retorna a conexão e o cursor."""
     conn = sqlite3.connect(DB_FILE)
+    # Retorna os resultados como tuplas que podem ser acessadas por nome de coluna
+    conn.row_factory = sqlite3.Row
     return conn, conn.cursor()
 
 def criar_tabela():
@@ -46,6 +48,21 @@ def deletar_transacao_db(transacao_id):
     """Deleta uma transação do banco de dados pelo seu ID."""
     conn, cursor = conectar()
     cursor.execute("DELETE FROM transacoes WHERE id = ?", (transacao_id,))
+    conn.commit()
+    conn.close()
+
+# --- NOVA FUNÇÃO AQUI ---
+def update_transacao_db(id, tipo, descricao, valor, categoria, data):
+    """Atualiza uma transação existente no banco de dados."""
+    conn, cursor = conectar()
+    cursor.execute(
+        """
+        UPDATE transacoes
+        SET tipo = ?, descricao = ?, valor = ?, categoria = ?, data = ?
+        WHERE id = ?
+        """,
+        (tipo, descricao, valor, categoria, data, id)
+    )
     conn.commit()
     conn.close()
 
