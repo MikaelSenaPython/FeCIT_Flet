@@ -9,7 +9,6 @@ def main(page: ft.Page):
     page.window_width = 450
     page.window_height = 700
     page.theme_mode = ft.ThemeMode.DARK
-    page.scroll = ft.ScrollMode.ADAPTIVE
 
     todas_transacoes = []
     id_em_edicao = ft.Text(value=None, visible=False)
@@ -17,7 +16,7 @@ def main(page: ft.Page):
     # --- FUNÇÃO PRINCIPAL DE FILTRAGEM ---
     def aplicar_filtros_e_atualizar(e=None):
         """
-        Aplica todos os filtros selecionados e atualiza a interface.
+        Aplica todos os filtros selecionados, atualiza a interface e fecha o painel.
         """
         transacoes_filtradas = todas_transacoes[:]
 
@@ -59,27 +58,45 @@ def main(page: ft.Page):
         atualizar_historico(transacoes_filtradas)
         gerar_grafico(transacoes_filtradas)
         
-        # Se estamos na tela de filtros, volta para a principal
-        if page.route == "/filtros":
-            page.go("/")
-        else:
-            page.update()
+        # Fecha o painel de filtros se ele estiver aberto
+        if e is not None:
+            page.close(bs)
+        page.update()
 
     def carregar_dados_iniciais():
         nonlocal todas_transacoes
         todas_transacoes = db.buscar_transacoes_db()
-        aplicar_filtros_e_atualizar()
+        aplicar_filtros_e_atualizar() 
 
     def deletar_transacao(transacao_a_deletar):
         db.deletar_transacao_db(transacao_a_deletar['id'])
         timestamp = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-        txt_ultima_atualizacao.value = f"Última atualização: {timestamp}"
+        nova_msg = f"Última atualização: {timestamp}"
+        txt_ultima_atualizacao.value = nova_msg
+        page.client_storage.set("ultima_atualizacao", nova_msg)
         carregar_dados_iniciais()
 
+    def cancelar_edicao(e):
+        """Volta ao estado inicial, cancelando a edição."""
+        card_title.value = "Nova Transação"
+        id_em_edicao.value = None
+        linha_botoes_adicionar.visible = True
+        linha_botoes_edicao.visible = False
+        radio_group_tipo_edicao.visible = False
+        
+        txt_descricao.value = ""
+        txt_valor.value = ""
+        dd_categoria.value = None
+        txt_data_selecionada.value = "Selecione uma data..."
+        page.update()
+
     def iniciar_edicao(transacao):
+        card_title.value = "Editar Transação"
         id_em_edicao.value = transacao['id']
         linha_botoes_adicionar.visible = False
-        btn_salvar.visible = True
+        linha_botoes_edicao.visible = True
+        radio_group_tipo_edicao.visible = True
+        
         radio_group_tipo_edicao.value = transacao['tipo']
         txt_descricao.value = transacao['descricao']
         txt_valor.value = str(transacao['valor'])
@@ -107,12 +124,11 @@ def main(page: ft.Page):
             categoria=dd_categoria.value, data=txt_data_selecionada.value
         )
 
-        linha_botoes_adicionar.visible = True
-        btn_salvar.visible = False
-        txt_descricao.value, txt_valor.value, dd_categoria.value = "", "", None
-        txt_data_selecionada.value = "Selecione uma data..."
         timestamp = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-        txt_ultima_atualizacao.value = f"Última atualização: {timestamp}"
+        nova_msg = f"Última atualização: {timestamp}"
+        txt_ultima_atualizacao.value = nova_msg
+        page.client_storage.set("ultima_atualizacao", nova_msg)
+        cancelar_edicao(None)
         carregar_dados_iniciais()
 
     def atualizar_saldo(transacoes):
@@ -161,6 +177,7 @@ def main(page: ft.Page):
             )
     
     def adicionar_transacao(e):
+        tipo = e.control.data # Pega o tipo do botão clicado
         if txt_data_selecionada.value == "Selecione uma data...":
             page.snack_bar = ft.SnackBar(ft.Text("Por favor, selecione uma data!"), bgcolor="orange")
             page.snack_bar.open = True
@@ -179,9 +196,11 @@ def main(page: ft.Page):
             page.update()
             return
         
-        db.adicionar_transacao_db(e.control.data, txt_descricao.value, valor, dd_categoria.value, txt_data_selecionada.value)
+        db.adicionar_transacao_db(tipo, txt_descricao.value, valor, dd_categoria.value, txt_data_selecionada.value)
         timestamp = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-        txt_ultima_atualizacao.value = f"Última atualização: {timestamp}"
+        nova_msg = f"Última atualização: {timestamp}"
+        txt_ultima_atualizacao.value = nova_msg
+        page.client_storage.set("ultima_atualizacao", nova_msg)
         txt_descricao.value, txt_valor.value, dd_categoria.value = "", "", None
         txt_data_selecionada.value = "Selecione uma data..."
         carregar_dados_iniciais()
@@ -234,30 +253,39 @@ def main(page: ft.Page):
     page.dialog = dialogo_confirmacao
     
     txt_saldo = ft.Text("Saldo do Período: R$ 0,00", size=24, weight=ft.FontWeight.BOLD)
-    txt_ultima_atualizacao = ft.Text("Última atualização: -", size=12, italic=True, color="grey")
+    
+    msg_atualizacao = page.client_storage.get("ultima_atualizacao") or "Nenhuma atualização registrada."
+    txt_ultima_atualizacao = ft.Text(msg_atualizacao, size=12, italic=True, color="grey")
     
     seletor_data = ft.DatePicker(on_change=data_selecionada, first_date=datetime(2020, 1, 1), last_date=datetime.now() + timedelta(days=365))
     page.overlay.append(seletor_data)
     
+    card_title = ft.Text("Nova Transação", size=18, weight=ft.FontWeight.BOLD)
     txt_descricao = ft.TextField(label="Descrição")
     txt_valor = ft.TextField(label="Valor (R$)", keyboard_type=ft.KeyboardType.NUMBER)
     txt_data_selecionada = ft.Text("Selecione uma data...", color="grey")
     btn_abrir_calendario = ft.IconButton(icon=ft.Icons.CALENDAR_MONTH, on_click=abrir_seletor_data, data="principal")
     dd_categoria = ft.Dropdown(label="Categoria", options=[ft.dropdown.Option(c) for c in ["Alimentação", "Transporte", "Lazer", "Moradia", "Salário", "Vendas", "Bônus", "Outros"]])
+    
     btn_add_receita = ft.ElevatedButton("Adicionar Receita", on_click=adicionar_transacao, data="Receita", icon=ft.Icons.ADD, bgcolor="green", color="white")
     btn_add_despesa = ft.ElevatedButton("Adicionar Despesa", on_click=adicionar_transacao, data="Despesa", icon=ft.Icons.REMOVE, bgcolor="red", color="white")
     linha_botoes_adicionar = ft.Row([btn_add_despesa, btn_add_receita], spacing=10)
-    btn_salvar = ft.ElevatedButton("Salvar Alterações", on_click=salvar_edicao, icon=ft.Icons.SAVE, bgcolor="blue", color="white", visible=False)
-    radio_group_tipo_edicao = ft.RadioGroup(content=ft.Row([ft.Radio("Despesa", "Despesa"), ft.Radio("Receita", "Receita")]), value="Despesa")
+    
+    btn_salvar = ft.ElevatedButton("Salvar", on_click=salvar_edicao, icon=ft.Icons.SAVE, bgcolor="blue", color="white")
+    btn_cancelar_edicao = ft.ElevatedButton("Cancelar", on_click=cancelar_edicao, icon=ft.Icons.CANCEL, bgcolor="grey", color="white")
+    linha_botoes_edicao = ft.Row([btn_salvar, btn_cancelar_edicao], spacing=10, visible=False)
+    
+    radio_group_tipo_edicao = ft.RadioGroup(content=ft.Row([ft.Radio(value="Despesa", label="Despesa"), ft.Radio(value="Receita", label="Receita")]), value="Despesa", visible=False)
 
     card_nova_transacao = ft.Card(elevation=10, content=ft.Container(padding=15, content=ft.Column(
         controls=[
-            ft.Text("Nova Transação", size=18, weight=ft.FontWeight.BOLD),
+            card_title,
             radio_group_tipo_edicao, txt_descricao, txt_valor,
             ft.Row([txt_data_selecionada, btn_abrir_calendario]),
-            dd_categoria, linha_botoes_adicionar, btn_salvar,
+            dd_categoria, linha_botoes_adicionar, linha_botoes_edicao,
         ])))
     
+    # --- Componentes dos Filtros (para o BottomSheet) ---
     filtro_tipo = ft.RadioGroup(content=ft.Row([ft.Radio(value="Todos", label="Todos"), ft.Radio(value="Receita", label="Receita"), ft.Radio(value="Despesa", label="Despesa")]), value="Todos")
     filtro_descricao = ft.TextField(label="Buscar por descrição...", prefix_icon=ft.Icons.SEARCH)
     txt_data_de = ft.Text("De:", color="grey")
@@ -265,18 +293,51 @@ def main(page: ft.Page):
     txt_data_ate = ft.Text("Até:", color="grey")
     btn_data_ate = ft.IconButton(icon=ft.Icons.CALENDAR_MONTH, on_click=abrir_seletor_data, data="filtro_ate")
 
+    # --- Painel Deslizante (BottomSheet) ---
+    bs = ft.BottomSheet(
+        ft.Container(
+            padding=20,
+            content=ft.Column(
+                controls=[
+                    ft.Text("Filtros", size=18, weight=ft.FontWeight.BOLD),
+                    ft.Text("Tipo", weight=ft.FontWeight.BOLD),
+                    filtro_tipo,
+                    ft.Divider(height=10),
+                    filtro_descricao,
+                    ft.Divider(height=10),
+                    ft.Text("Período", weight=ft.FontWeight.BOLD),
+                    ft.Row([txt_data_de, btn_data_de]),
+                    ft.Row([txt_data_ate, btn_data_ate]),
+                    ft.Divider(height=20),
+                    ft.ElevatedButton("Aplicar Filtros", on_click=aplicar_filtros_e_atualizar, icon=ft.Icons.CHECK)
+                ],
+                scroll=ft.ScrollMode.AUTO # Apenas aparece ao rolar
+            )
+        )
+    )
+    page.overlay.append(bs)
+
+    def abrir_painel_filtros(e):
+        page.open(bs)
+
+    # --- Componentes Gráficos e de Histórico ---
     grafico_pizza = ft.PieChart(sections=[], center_space_radius=40)
     card_grafico = ft.Card(elevation=10, visible=False, content=ft.Container(padding=15, content=ft.Column(
         [ft.Text("Gastos por Categoria", size=18, weight=ft.FontWeight.BOLD), grafico_pizza],
         horizontal_alignment=ft.CrossAxisAlignment.CENTER)))
     historico_container = ft.Column(spacing=10)
 
-    # --- GERENCIADOR DE ROTAS E VISUALIZAÇÕES ---
-    def route_change(route):
-        page.views.clear()
-        page.views.append(
-            ft.View(
-                "/",
+    # --- Layout Principal da Página ---
+    page.appbar = ft.AppBar(
+        title=ft.Text("App Financeiro"),
+        actions=[ft.IconButton(ft.Icons.FILTER_LIST, on_click=abrir_painel_filtros, tooltip="Filtros")]
+    )
+    
+    page.add(
+        ft.Container(
+            padding=ft.padding.symmetric(horizontal=20),
+            expand=True,
+            content=ft.Column(
                 [
                     txt_saldo, txt_ultima_atualizacao, ft.Divider(),
                     card_nova_transacao, ft.Divider(),
@@ -284,43 +345,11 @@ def main(page: ft.Page):
                     ft.Text("Histórico", size=18, weight=ft.FontWeight.BOLD),
                     historico_container,
                 ],
-                scroll=ft.ScrollMode.ADAPTIVE,
-                appbar=ft.AppBar(
-                    title=ft.Text("App Financeiro"),
-                    actions=[ft.IconButton(ft.Icons.FILTER_LIST, on_click=lambda _: page.go("/filtros"), tooltip="Filtros")]
-                ),
+                scroll=ft.ScrollMode.AUTO, # Apenas aparece ao rolar
+                expand=True
             )
         )
-        if page.route == "/filtros":
-            page.views.append(
-                ft.View(
-                    "/filtros",
-                    [
-                        ft.Text("Tipo", weight=ft.FontWeight.BOLD),
-                        filtro_tipo,
-                        ft.Divider(height=10),
-                        filtro_descricao,
-                        ft.Divider(height=10),
-                        ft.Text("Período", weight=ft.FontWeight.BOLD),
-                        ft.Row([txt_data_de, btn_data_de], alignment=ft.MainAxisAlignment.START),
-                        ft.Row([txt_data_ate, btn_data_ate], alignment=ft.MainAxisAlignment.START),
-                        ft.Divider(height=20),
-                        ft.ElevatedButton("Aplicar Filtros", on_click=aplicar_filtros_e_atualizar, icon=ft.Icons.CHECK, width=page.width-40)
-                    ],
-                    appbar=ft.AppBar(title=ft.Text("Filtros"), bgcolor="surfaceVariant"),
-                    padding=20
-                )
-            )
-        page.update()
-
-    def view_pop(view):
-        page.views.pop()
-        top_view = page.views[-1]
-        page.go(top_view.route)
-
-    page.on_route_change = route_change
-    page.on_view_pop = view_pop
-    page.go(page.route)
+    )
     
     carregar_dados_iniciais()
 
