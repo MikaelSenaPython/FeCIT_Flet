@@ -129,8 +129,16 @@ def next_question(e, page, state, quiz_content, show_results_func, update_quiz_f
     page.update()
 
 def main(page: ft.Page):
+    
+
     # Configurações iniciais da página
+    page.window_width=800
+    page.window_height=600 
+    page.window_resizable=False
+
     page.title = "IA: Revolução e Impacto"
+    
+
     page.fonts = {
         "Roboto": "https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap",
         "Montserrat": "https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap",
@@ -145,7 +153,7 @@ def main(page: ft.Page):
             tertiary=ft.Colors.TEAL_400,
         )
     )
-    page.scroll = "adaptive"
+    page.scroll = None
     page.padding = 0
 
     # Inicializa o estado do aplicativo
@@ -233,7 +241,7 @@ def main(page: ft.Page):
             border_radius=10,
             width=250,
             height=180,
-            animate=ft.animation.Animation(500, "easeOut"),
+            animate=ft.Animation(500, "easeOut"),
         )
 
     def create_bar_chart(data, title, height=200):
@@ -251,7 +259,7 @@ def main(page: ft.Page):
                             height=bar_height,
                             bgcolor=ft.Colors.BLUE_400 if i % 2 == 0 else ft.Colors.CYAN_400,
                             border_radius=ft.border_radius.vertical(top=5),
-                            animate=ft.animation.Animation(800, "easeOut"),
+                            animate=ft.Animation(800, "easeOut"),
                         ),
                         ft.Text(item["setor"], size=12, text_align=ft.TextAlign.CENTER),
                         ft.Icon(item["icon"], size=20)
@@ -357,7 +365,15 @@ def main(page: ft.Page):
         create_ui_func(page, state)
         page.update()
 
+    
+
     def create_ui(page, state):
+        main_layout = ft.Column(
+            expand=True,
+            scroll=ft.ScrollMode.ADAPTIVE,
+            spacing=0 # Remove espaços extras entre as seções
+        )
+
         # Hero Section
         hero_section = ft.Container(
             content=ft.Column(
@@ -380,12 +396,12 @@ def main(page: ft.Page):
                             ft.ElevatedButton(
                                 "Explorar Ferramentas", 
                                 icon="explore",
-                                on_click=lambda _: page.scroll_to("intro")
+                                on_click=lambda _: main_layout.scroll_to("intro")
                             ),
                             ft.OutlinedButton(
                                 "Saiba Mais", 
                                 icon="info",
-                                on_click=lambda _: page.scroll_to("impact")
+                                on_click=lambda _: main_layout.scroll_to("impact")
                             )
                         ],
                         alignment=ft.MainAxisAlignment.CENTER,
@@ -646,6 +662,7 @@ def main(page: ft.Page):
 
         calculator_result = ft.Column(visible=False)
 
+
         def calculate_footprint(e):
             try:
                 days = int(training_time.value)
@@ -724,36 +741,38 @@ def main(page: ft.Page):
         )
 
         interactive_section = ft.Container(
+            expand=True,
             content=ft.Column(
                 [
                     ft.Text("Explore Interativamente", size=28, weight=ft.FontWeight.BOLD, text_align=ft.TextAlign.CENTER),
                     tabs,
                 ],
                 spacing=40,
+                expand=True,
             ),
             padding=40,
             bgcolor=ft.Colors.GREY_100 if not state.dark_mode else ft.Colors.GREY_900,
         )
         interactive_section.id = "interactive"
 
-        # Seção Futuro
-        facts = ft.Row(
-            scroll=ft.ScrollMode.ADAPTIVE,
+        #Seção Futuro
+        facts = ft.Wrap( # <-- Mude de Row para Wrap
             controls=[
                 create_fact("trending_up", "+65%", "dos empregos sofrerão mudanças com a IA até 2030"),
                 create_fact("eco", "15-20%", "redução no desperdício agrícola com IA e sensores"),
                 create_fact("school", "120 milhões", "de trabalhadores precisarão de requalificação"),
                 create_fact("bolt", "3.5%", "das emissões globais podem vir de tecnologia até 2030"),
             ],
-            spacing=20,
-            alignment=ft.MainAxisAlignment.CENTER,
+            spacing=20, # Espaçamento horizontal entre os cards
+            run_spacing=20, # Espaçamento vertical entre as linhas (quando quebrar)
+            alignment=ft.WrapAlignment.CENTER, # Centraliza os cards na horizontal
         )
 
         future_section = ft.Container(
             content=ft.Column(
                 [
                     ft.Text("Preparando-se para o Futuro", size=28, weight=ft.FontWeight.BOLD, text_align=ft.TextAlign.CENTER),
-                    facts,
+                    #facts,
                     ft.Container(
                         content=ft.Column(
                             [
@@ -785,66 +804,102 @@ def main(page: ft.Page):
             content=ft.Column(
                 [
                     ft.Row(
-                        [
-                            ft.Icon("psychology", size=40, color=ft.Colors.CYAN_300),
-                            ft.Text("IA Revolução", size=24, weight=ft.FontWeight.BOLD),
-                        ],
+                        [ft.Icon("psychology", size=40, color=ft.Colors.CYAN_300),
+                        ft.Text("IA Revolução", size=24, weight=ft.FontWeight.BOLD)],
                         alignment=ft.MainAxisAlignment.CENTER,
                         spacing=10,
                     ),
-                    ft.Text("Explorando os impactos e oportunidades da Inteligência Artificial", size=16, text_align=ft.TextAlign.CENTER),
+                    ft.Text("Explorando os impactos e oportunidades da Inteligência Artificial",
+                        size=16, text_align=ft.TextAlign.CENTER),
                     ft.Row(
                         [
-                            ft.TextButton("Introdução", on_click=lambda _: page.scroll_to("intro")),
-                            ft.TextButton("Impactos", on_click=lambda _: page.scroll_to("impact")),
-                            ft.TextButton("Interativo", on_click=lambda _: page.scroll_to("interactive")),
-                            ft.TextButton("Futuro", on_click=lambda _: page.scroll_to("future")),
+                            ft.TextButton("Introdução", on_click=lambda _: main_layout.scroll_to("intro")),
+                            ft.TextButton("Impactos", on_click=lambda _: main_layout.scroll_to("impact")),
+                            ft.TextButton("Interativo", on_click=lambda _: main_layout.scroll_to("interactive")),
+                            ft.TextButton("Futuro", on_click=lambda _: main_layout.scroll_to("future")),
                         ],
                         alignment=ft.MainAxisAlignment.CENTER,
                     ),
                     ft.Text("Projeto desenvolvido para Feira de Ciências e Tecnologia - FeCIT 2025", size=14),
-                    ft.Text(f"© {datetime.now().year} IA Revolução. Todos os direitos reservados.", size=12, color=ft.Colors.GREY_500),
+                    ft.Text(f"© {datetime.now().year} IA Revolução. Todos os direitos reservados.", 
+                        size=12, color=ft.Colors.GREY_500),
                 ],
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                 spacing=20,
             ),
             padding=40,
             bgcolor=ft.Colors.BLUE_900,
+            width=page.window_width,  # Garante largura total
         )
         
         # Header
+        # NO FINAL DA SUA FUNÇÃO create_ui, SUBSTITUA O BLOCO ANTIGO POR ESTE:
+
+        # Cria a coluna principal que terá a barra de rolagem
+        # NO FINAL DA SUA FUNÇÃO create_ui, SUBSTITUA O BLOCO ANTIGO POR ESTE:
+
+        # NO FINAL DA SUA FUNÇÃO create_ui, SUBSTITUA O BLOCO ANTIGO POR ESTE:
+        page.add(
+    ft.Column(
+        controls=[
+            main_layout
+        ],
+        expand=True,
+        spacing=0
+    )
+)
+
+        # 1. Crie a coluna principal PRIMEIRO, sem o header
+        main_layout = ft.Column(
+            expand=True,
+            scroll=ft.ScrollMode.ADAPTIVE,
+            spacing=0,
+            controls=[
+                hero_section,
+                intro_section,
+                impact_section,
+                interactive_section,
+                future_section,
+                # Footer agora está dentro da coluna rolável
+                footer,
+            ]
+        )
+
+        # 2. AGORA, crie o header que USA a main_layout
         header = ft.AppBar(
             title=ft.Row(
                 [
                     ft.Icon("psychology", color=ft.Colors.CYAN_300),
-                    ft.Text("IA Revolução", size=20, weight=ft.FontWeight.BOLD, color=ft.colors.WHITE),
+                    ft.Text("IA Revolução", size=20, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
                 ],
                 spacing=10,
             ),
             bgcolor=ft.Colors.BLUE_700,
             actions=[
-                ft.TextButton("Introdução", on_click=lambda _: page.scroll_to("intro")),
-                ft.TextButton("Impactos", on_click=lambda _: page.scroll_to("impact")),
-                ft.TextButton("Interativo", on_click=lambda _: page.scroll_to("interactive")),
-                ft.TextButton("Futuro", on_click=lambda _: page.scroll_to("future")),
+                ft.TextButton("Introdução", on_click=lambda _: main_layout.scroll_to(key="intro")),
+                ft.TextButton("Impactos", on_click=lambda _: main_layout.scroll_to(key="impact")),
+                ft.TextButton("Interativo", on_click=lambda _: main_layout.scroll_to(key="interactive")),
+                ft.TextButton("Futuro", on_click=lambda _: main_layout.scroll_to(key="future")),
                 ft.IconButton(icon="dark_mode" if not state.dark_mode else "light_mode", on_click=lambda e: toggle_theme(e, page, state, create_ui)),
             ],
         )
 
-        # Adicionar tudo à página
-        page.add(
-            header,
-            hero_section,
-            intro_section,
-            impact_section,
-            interactive_section,
-            future_section,
-            footer,
-        )
+
+
+
+        # 3. Limpe a página e adicione os elementos na ordem correta
+        page.controls.clear()
+        page.appbar = header      # Define o header como fixo no topo
+        page.add(main_layout)     # Adiciona o conteúdo rolável
     
     # Criar a UI inicial
     create_ui(page, state)
     page.update()
 
-# Iniciar o aplicativo
-ft.app(target=main, view=ft.WEB_BROWSER)
+# Define a largura e altura da janela
+
+
+# --- PONTO DE ENTRADA DO APLICATIVO ---
+
+ft.app(target=main)
+   
