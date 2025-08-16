@@ -132,10 +132,16 @@ def main(page: ft.Page):
         carregar_dados_iniciais()
 
     def atualizar_saldo(transacoes):
-        saldo = sum(float(t['valor']) if t['tipo'] == "Receita" else -float(t['valor']) for t in transacoes)
+        total_receitas = sum(float(t['valor']) for t in transacoes if t['tipo'] == "Receita")
+        total_despesas = sum(float(t['valor']) for t in transacoes if t['tipo'] == "Despesa")
+        saldo = total_receitas - total_despesas
+
+        txt_total_receitas.value = f"R$ {total_receitas:,.2f}"
+        txt_total_despesas.value = f"R$ {total_despesas:,.2f}"
+        
         cor_saldo = "green" if saldo >= 0 else "red"
-        txt_saldo.value = f"Saldo do Período: R$ {saldo:,.2f}"
-        txt_saldo.color = cor_saldo
+        txt_saldo_final.value = f"R$ {saldo:,.2f}"
+        txt_saldo_final.color = cor_saldo
     
     def fechar_dialogo(e):
         page.close(dialogo_confirmacao)
@@ -252,7 +258,47 @@ def main(page: ft.Page):
         actions_alignment=ft.MainAxisAlignment.END)
     page.dialog = dialogo_confirmacao
     
-    txt_saldo = ft.Text("Saldo do Período: R$ 0,00", size=24, weight=ft.FontWeight.BOLD)
+    # Componentes para o Card de Resumo
+    txt_total_receitas = ft.Text(size=18, weight=ft.FontWeight.BOLD, color="green")
+    txt_total_despesas = ft.Text(size=18, weight=ft.FontWeight.BOLD, color="red")
+    txt_saldo_final = ft.Text(size=22, weight=ft.FontWeight.BOLD)
+
+    card_resumo = ft.Card(
+        elevation=10,
+        content=ft.Container(
+            padding=15,
+            content=ft.Column(
+                [
+                    ft.Text("Resumo do Período", size=18, weight=ft.FontWeight.BOLD),
+                    ft.Row(
+                        [
+                            ft.Icon(ft.Icons.ARROW_UPWARD, color="green"),
+                            ft.Text("Receitas:", weight=ft.FontWeight.BOLD),
+                            txt_total_receitas,
+                        ],
+                        alignment=ft.MainAxisAlignment.START,
+                    ),
+                    ft.Row(
+                        [
+                            ft.Icon(ft.Icons.ARROW_DOWNWARD, color="red"),
+                            ft.Text("Despesas:", weight=ft.FontWeight.BOLD),
+                            txt_total_despesas,
+                        ],
+                        alignment=ft.MainAxisAlignment.START,
+                    ),
+                    ft.Divider(),
+                    ft.Row(
+                        [
+                            ft.Icon(ft.Icons.ACCOUNT_BALANCE_WALLET),
+                            ft.Text("Saldo:", size=20, weight=ft.FontWeight.BOLD),
+                            txt_saldo_final,
+                        ],
+                        alignment=ft.MainAxisAlignment.START,
+                    ),
+                ]
+            ),
+        ),
+    )
     
     msg_atualizacao = page.client_storage.get("ultima_atualizacao") or "Nenhuma atualização registrada."
     txt_ultima_atualizacao = ft.Text(msg_atualizacao, size=12, italic=True, color="grey")
@@ -339,8 +385,11 @@ def main(page: ft.Page):
             expand=True,
             content=ft.Column(
                 [
-                    txt_saldo, txt_ultima_atualizacao, ft.Divider(),
-                    card_nova_transacao, ft.Divider(),
+                    card_resumo, 
+                    txt_ultima_atualizacao, 
+                    ft.Divider(),
+                    card_nova_transacao, 
+                    ft.Divider(),
                     card_grafico, 
                     ft.Text("Histórico", size=18, weight=ft.FontWeight.BOLD),
                     historico_container,
