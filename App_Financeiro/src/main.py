@@ -10,6 +10,14 @@ def main(page: ft.Page):
     page.window_height = 700
     page.theme_mode = ft.ThemeMode.DARK
 
+    # --- TEMA PARA ESCONDER A BARRA DE ROLAGEM ---
+    page.theme = ft.Theme(
+        scrollbar_theme=ft.ScrollbarTheme(
+            thumb_visibility=False,
+            thickness=0
+        )
+    )
+
     todas_transacoes = []
     id_em_edicao = ft.Text(value=None, visible=False)
 
@@ -357,7 +365,8 @@ def main(page: ft.Page):
                     ft.Divider(height=20),
                     ft.ElevatedButton("Aplicar Filtros", on_click=aplicar_filtros_e_atualizar, icon=ft.Icons.CHECK)
                 ],
-                scroll=ft.ScrollMode.AUTO # Apenas aparece ao rolar
+                spacing=10,
+                scroll=ft.ScrollMode.AUTO
             )
         )
     )
@@ -384,7 +393,9 @@ def main(page: ft.Page):
             padding=ft.padding.symmetric(horizontal=20),
             expand=True,
             content=ft.Column(
-                [
+                spacing=10,
+                scroll=ft.ScrollMode.AUTO,
+                controls=[
                     card_resumo, 
                     txt_ultima_atualizacao, 
                     ft.Divider(),
@@ -394,8 +405,6 @@ def main(page: ft.Page):
                     ft.Text("Histórico", size=18, weight=ft.FontWeight.BOLD),
                     historico_container,
                 ],
-                scroll=ft.ScrollMode.AUTO, # Apenas aparece ao rolar
-                expand=True
             )
         )
     )
