@@ -5,9 +5,59 @@ import itertools
 import database as db
 from calendar import month_name
 
+# 🔑 senha única do app
+APP_PASSWORD = "162408"
 
+
+# --- TELA DE LOGIN ---
+def login_screen(page: ft.Page, on_success):
+    page.clean()
+    page.title = "Login - Meu App Financeiro"
+    page.vertical_alignment = ft.MainAxisAlignment.CENTER
+    page.horizontal_alignment = ft.CrossAxisAlignment.CENTER
+
+    senha = ft.TextField(
+        label="Digite a senha",
+        password=True,
+        can_reveal_password=True,
+        width=250,
+    )
+
+    mensagem = ft.Text("", color="red")
+
+    def verificar_login(e):
+        if senha.value == APP_PASSWORD:
+            on_success()  # ✅ chama a interface principal
+        else:
+            mensagem.value = "Senha incorreta!"
+            page.update()
+
+    btn_login = ft.ElevatedButton("Entrar", on_click=verificar_login)
+
+    page.add(
+        ft.Column(
+            spacing=20,
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            controls=[
+                ft.Text("Meu App Financeiro", size=22, weight=ft.FontWeight.BOLD),
+                senha,
+                btn_login,
+                mensagem,
+            ],
+        )
+    )
 
 def main(page: ft.Page):
+    def iniciar_app():
+        page.clean()
+        # aqui você chama o resto do seu app normalmente
+        carregar_interface_principal(page)  # ou cole aqui o seu código original
+
+    # começa mostrando a tela de login
+    login_screen(page, on_success=iniciar_app)
+    
+def carregar_interface_principal(page: ft.Page):
+    page.clean()
     page.title = "Meu App Financeiro"
     page.window_width = 450
     page.window_height = 700
