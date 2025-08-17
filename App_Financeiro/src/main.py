@@ -49,6 +49,9 @@ def main(page: ft.Page):
             proximo_mes = mes_selecionado.replace(day=1) + timedelta(days=32)
             mes_selecionado = proximo_mes.replace(day=1)
         
+        # Reseta os filtros ao mudar o mês
+        filtro_dashboard.selected_index = 0
+        filtro_subcategoria_dashboard.value = "Todas"
         atualizar_views()
 
     # --- Funções de Atualização de UI ---
@@ -67,30 +70,48 @@ def main(page: ft.Page):
 
     def atualizar_dashboard_view(transacoes):
         filtro_selecionado = filtro_dashboard.selected_index
+        filtro_subcategoria_dashboard.visible = False
         
         if filtro_selecionado == 0: # Visão Geral
             transacoes_para_exibir = transacoes
             gerar_grafico_geral(transacoes)
             card_resumo_dashboard_geral.visible = True
             card_resumo_dashboard_filtrado.visible = False
-        elif filtro_selecionado == 1: # Receitas
-            transacoes_para_exibir = [t for t in transacoes if t['tipo'] == 'Receita']
-            gerar_grafico_por_tipo(transacoes_para_exibir, "Receita")
+        else: # Receitas ou Despesas
+            tipo_filtro = "Receita" if filtro_selecionado == 1 else "Despesa"
+            
+            # Popula e exibe o sub-filtro de categoria
+            categorias_do_tipo = sorted(list(set([t['categoria'] for t in transacoes if t['tipo'] == tipo_filtro])))
+            if categorias_do_tipo:
+                filtro_subcategoria_dashboard.visible = True
+                opcoes_filtro = [ft.dropdown.Option("Todas")] + [ft.dropdown.Option(c) for c in categorias_do_tipo]
+                filtro_subcategoria_dashboard.options = opcoes_filtro
+                if filtro_subcategoria_dashboard.value not in [opt.key for opt in opcoes_filtro]:
+                    filtro_subcategoria_dashboard.value = "Todas"
+
+            # Filtra transações com base no sub-filtro
+            transacoes_do_tipo = [t for t in transacoes if t['tipo'] == tipo_filtro]
+            subcategoria_selecionada = filtro_subcategoria_dashboard.value
+            
+            if subcategoria_selecionada == "Todas":
+                transacoes_para_exibir = transacoes_do_tipo
+            else:
+                transacoes_para_exibir = [t for t in transacoes_do_tipo if t['categoria'] == subcategoria_selecionada]
+
+            # Atualiza UI
+            gerar_grafico_por_tipo(transacoes_do_tipo, tipo_filtro)
             card_resumo_dashboard_geral.visible = False
             card_resumo_dashboard_filtrado.visible = True
-            total_receitas = sum(float(t['valor']) for t in transacoes_para_exibir)
-            txt_resumo_filtrado_titulo.value = "Total de Receitas"
-            txt_resumo_filtrado_valor.value = f"R$ {total_receitas:,.2f}"
-            txt_resumo_filtrado_valor.color = "green"
-        elif filtro_selecionado == 2: # Despesas
-            transacoes_para_exibir = [t for t in transacoes if t['tipo'] == 'Despesa']
-            gerar_grafico_por_tipo(transacoes_para_exibir, "Despesa")
-            card_resumo_dashboard_geral.visible = False
-            card_resumo_dashboard_filtrado.visible = True
-            total_despesas = sum(float(t['valor']) for t in transacoes_para_exibir)
-            txt_resumo_filtrado_titulo.value = "Total de Despesas"
-            txt_resumo_filtrado_valor.value = f"R$ {total_despesas:,.2f}"
-            txt_resumo_filtrado_valor.color = "red"
+            
+            total_filtrado = sum(float(t['valor']) for t in transacoes_para_exibir)
+            
+            if subcategoria_selecionada == "Todas":
+                txt_resumo_filtrado_titulo.value = f"Total de {tipo_filtro}s"
+            else:
+                txt_resumo_filtrado_titulo.value = f"Total em '{subcategoria_selecionada}'"
+            
+            txt_resumo_filtrado_valor.value = f"R$ {total_filtrado:,.2f}"
+            txt_resumo_filtrado_valor.color = "green" if tipo_filtro == "Receita" else "red"
 
         atualizar_historico(transacoes_para_exibir)
         
@@ -105,6 +126,7 @@ def main(page: ft.Page):
 
     def gerar_grafico_geral(transacoes):
         card_grafico_titulo.value = "Receitas x Despesas"
+        grafico_legenda.controls.clear()
         total_receitas = sum(float(t['valor']) for t in transacoes if t['tipo'] == "Receita")
         total_despesas = sum(float(t['valor']) for t in transacoes if t['tipo'] == "Despesa")
         
@@ -114,13 +136,24 @@ def main(page: ft.Page):
             return
 
         card_grafico.visible = True
+        
+        porc_receitas = (total_receitas / soma_total * 100) if soma_total > 0 else 0
+        porc_despesas = (total_despesas / soma_total * 100) if soma_total > 0 else 0
+
         grafico_pizza.sections = [
-            ft.PieChartSection(value=total_receitas, title=f"{(total_receitas / soma_total * 100):.0f}%", color="green", radius=80),
-            ft.PieChartSection(value=total_despesas, title=f"{(total_despesas / soma_total * 100):.0f}%", color="red", radius=80),
+            ft.PieChartSection(value=total_receitas, title=f"{porc_receitas:.0f}%", color="green", radius=80),
+            ft.PieChartSection(value=total_despesas, title=f"{porc_despesas:.0f}%", color="red", radius=80),
         ]
+        
+        if total_receitas > 0:
+            grafico_legenda.controls.append(ft.Row([ft.Container(width=15, height=15, bgcolor="green", border_radius=10), ft.Text(f"Receitas ({porc_receitas:.1f}%)")]))
+        if total_despesas > 0:
+            grafico_legenda.controls.append(ft.Row([ft.Container(width=15, height=15, bgcolor="red", border_radius=10), ft.Text(f"Despesas ({porc_despesas:.1f}%)")]))
+
 
     def gerar_grafico_por_tipo(transacoes, tipo):
         card_grafico_titulo.value = f"Composição de {tipo}s"
+        grafico_legenda.controls.clear()
         
         if not transacoes:
             card_grafico.visible = False
@@ -134,17 +167,34 @@ def main(page: ft.Page):
         for t in transacoes:
             dados_por_categoria[t['categoria']] = dados_por_categoria.get(t['categoria'], 0) + float(t['valor'])
 
-        cores = itertools.cycle(["red", "orange", "yellow", "green", "blue", "purple", "pink"])
+        if tipo == "Receita":
+            cores = itertools.cycle(["green", "orange", "#36A2EB", "#4BC0C0", "#9966FF"])
+        else: # Despesa
+            cores = itertools.cycle(["red", "orange", "#FFCE56", "#FF9F40", "#FF6384"])
         
-        grafico_pizza.sections = [
-            ft.PieChartSection(
-                value=valor, 
-                title=f"{(valor / total_tipo * 100):.0f}%",
-                title_style=ft.TextStyle(size=12, color="white", weight=ft.FontWeight.BOLD),
-                color=next(cores), 
-                radius=80
-            ) for categoria, valor in dados_por_categoria.items()
-        ]
+        chart_sections = []
+        for categoria, valor in dados_por_categoria.items():
+            cor_atual = next(cores)
+            porcentagem = valor / total_tipo * 100
+            
+            chart_sections.append(
+                ft.PieChartSection(
+                    value=valor, 
+                    title=f"{porcentagem:.0f}%",
+                    title_style=ft.TextStyle(size=12, color="white", weight=ft.FontWeight.BOLD),
+                    color=cor_atual, 
+                    radius=80
+                )
+            )
+            
+            grafico_legenda.controls.append(
+                ft.Row([
+                    ft.Container(width=15, height=15, bgcolor=cor_atual, border_radius=7),
+                    ft.Text(f"{categoria} ({porcentagem:.1f}%)")
+                ])
+            )
+        
+        grafico_pizza.sections = chart_sections
 
     def atualizar_historico(transacoes):
         historico_container.controls.clear()
@@ -345,10 +395,28 @@ def main(page: ft.Page):
         ]
     )
 
-    grafico_pizza = ft.PieChart(sections=[], center_space_radius=40, expand=True)
+    filtro_subcategoria_dashboard = ft.Dropdown(
+        label="Filtrar por Categoria",
+        on_change=atualizar_views,
+        value="Todas",
+        visible=False
+    )
+
+    grafico_pizza = ft.PieChart(sections=[], center_space_radius=40, expand=1)
+    grafico_legenda = ft.Column(spacing=5)
     card_grafico_titulo = ft.Text("Visão Geral do Mês", size=16, weight=ft.FontWeight.BOLD)
-    card_grafico = ft.Card(elevation=5, visible=False, content=ft.Container(padding=15, height=300, content=ft.Column(
-        [card_grafico_titulo, grafico_pizza],
+    card_grafico = ft.Card(elevation=5, visible=False, content=ft.Container(padding=15, content=ft.Column(
+        [
+            card_grafico_titulo,
+            ft.Row(
+                controls=[
+                    grafico_pizza,
+                    grafico_legenda,
+                ],
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                alignment=ft.MainAxisAlignment.START,
+            )
+        ],
         horizontal_alignment=ft.CrossAxisAlignment.CENTER)))
     
     historico_container = ft.Column(spacing=10, visible=False)
@@ -396,6 +464,7 @@ def main(page: ft.Page):
         [
             mes_selector,
             filtro_dashboard,
+            filtro_subcategoria_dashboard,
             card_grafico,
             ver_transacoes_btn,
             historico_container,
@@ -423,6 +492,8 @@ def main(page: ft.Page):
         inicio_view.visible = (index == 0)
         dashboard_view.visible = (index == 1)
         carteira_view.visible = (index == 2)
+        # Reseta o filtro de subcategoria ao trocar de aba principal
+        filtro_subcategoria_dashboard.value = "Todas"
         page.update()
 
     page.navigation_bar = ft.NavigationBar(
