@@ -10,6 +10,9 @@ def main(page: ft.Page):
     page.window_height = 700
     page.theme_mode = ft.ThemeMode.DARK
 
+    # Garante que a tabela do DB seja criada no local correto ao iniciar
+    db.criar_tabela(page)
+
     # --- TEMA PARA ESCONDER A BARRA DE ROLAGEM ---
     page.theme = ft.Theme(
         scrollbar_theme=ft.ScrollbarTheme(
@@ -73,11 +76,11 @@ def main(page: ft.Page):
 
     def carregar_dados_iniciais():
         nonlocal todas_transacoes
-        todas_transacoes = db.buscar_transacoes_db()
+        todas_transacoes = db.buscar_transacoes_db(page) # Passa 'page'
         aplicar_filtros_e_atualizar() 
 
     def deletar_transacao(transacao_a_deletar):
-        db.deletar_transacao_db(transacao_a_deletar['id'])
+        db.deletar_transacao_db(page, transacao_a_deletar['id']) # Passa 'page'
         timestamp = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
         nova_msg = f"Última atualização: {timestamp}"
         txt_ultima_atualizacao.value = nova_msg
@@ -127,9 +130,13 @@ def main(page: ft.Page):
             return
         
         db.update_transacao_db(
-            id=id_em_edicao.value, tipo=radio_group_tipo_edicao.value,
-            descricao=txt_descricao.value, valor=valor,
-            categoria=dd_categoria.value, data=txt_data_selecionada.value
+            page, # Passa 'page'
+            id=int(id_em_edicao.value), 
+            tipo=radio_group_tipo_edicao.value,
+            descricao=txt_descricao.value, 
+            valor=valor,
+            categoria=dd_categoria.value, 
+            data=txt_data_selecionada.value
         )
 
         timestamp = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
@@ -210,7 +217,7 @@ def main(page: ft.Page):
             page.update()
             return
         
-        db.adicionar_transacao_db(tipo, txt_descricao.value, valor, dd_categoria.value, txt_data_selecionada.value)
+        db.adicionar_transacao_db(page, tipo, txt_descricao.value, valor, dd_categoria.value, txt_data_selecionada.value) # Passa 'page'
         timestamp = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
         nova_msg = f"Última atualização: {timestamp}"
         txt_ultima_atualizacao.value = nova_msg
