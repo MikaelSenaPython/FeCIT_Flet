@@ -430,7 +430,7 @@ def main(page: ft.Page):
         ink=True
     )
 
-    txt_total_gasto_mes = ft.Text(size=16)
+    txt_total_gasto_mes = ft.Text(size=16, color="red")
     txt_total_ganho_mes = ft.Text(size=16, color="green")
     txt_lucro_mes = ft.Text(size=20, weight=ft.FontWeight.BOLD)
     card_resumo_dashboard_geral = ft.Card(elevation=5, content=ft.Container(padding=15, content=ft.Column([
