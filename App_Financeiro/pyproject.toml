@@ -13,7 +13,7 @@ dependencies = [
 
 [tool.flet]
 org = "com.mycompany"
-product = "app-financeiro"
+product = "Meu App Financeiro"
 company = "Flet"
 copyright = "Copyright (C) 2025 by Flet"
 

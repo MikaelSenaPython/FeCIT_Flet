@@ -70,46 +70,63 @@ def carregar_interface_principal(page: ft.Page):
 
     # --- Funções de Backup / Restauração ---
     def salvar_backup_result(e: ft.FilePickerResultEvent):
-        if e.path: # O usuário selecionou um local e nome de arquivo
-            try:
-                # Caminho de origem (onde o seu DB está salvo internamente)
-                db_path_origem = os.path.join(page.get_app_data_dir(), "finance.db")
-                
-                # Copia o arquivo para o destino escolhido pelo usuário
-                shutil.copy(db_path_origem, e.path)
-                
-                page.snack_bar = ft.SnackBar(ft.Text(f"Backup salvo com sucesso em {e.path}!"), bgcolor="green")
-                page.snack_bar.open = True
-                page.update()
-            except Exception as ex:
-                print(f"Erro ao salvar backup: {ex}")
-                # Adicionar um SnackBar de erro aqui seria uma boa ideia
+         if e.path: # O usuário selecionou um local e nome de arquivo
+             try:
+                 # Caminho de origem (onde o seu DB está salvo internamente)
+                 # CORREÇÃO: Remova a chamada a page.get_app_data_dir()
+                 db_path_origem = "finance.db"
+                 
+                 # Copia o arquivo para o destino escolhido pelo usuário
+                 shutil.copy(db_path_origem, e.path)
+                 
+                 page.snack_bar = ft.SnackBar(ft.Text(f"Backup salvo com sucesso em {e.path}!"), bgcolor="green")
+                 page.snack_bar.open = True
+                 page.update()
+             except FileNotFoundError:
+                 # Erro mais específico se o banco de dados ainda não existir
+                 print("Erro: O arquivo finance.db não foi encontrado para fazer backup.")
+                 page.snack_bar = ft.SnackBar(ft.Text("Nenhum dado para salvar. Use o app primeiro."), bgcolor="orange")
+                 page.snack_bar.open = True
+                 page.update()
+             except Exception as ex:
+                 print(f"Erro ao salvar backup: {ex}")
+                 page.snack_bar = ft.SnackBar(ft.Text(f"Erro ao salvar: {ex}"), bgcolor="red")
+                 page.snack_bar.open = True
+                 page.update()
 
     def restaurar_backup_result(e: ft.FilePickerResultEvent):
-        if e.files: # O usuário selecionou um arquivo
-            try:
-                # Caminho do arquivo de backup selecionado
-                backup_path_origem = e.files[0].path
-                
-                # Caminho de destino (para onde o DB interno deve ser restaurado)
-                db_path_destino = os.path.join(page.get_app_data_dir(), "finance.db")
-                
-                # Copia o backup para a pasta de dados interna, sobrescrevendo o DB atual
-                shutil.copy(backup_path_origem, db_path_destino)
+         if e.files: # O usuário selecionou um arquivo
+             try:
+                 # Caminho do arquivo de backup selecionado
+                 backup_path_origem = e.files[0].path
+                 
+                 # Caminho de destino (para onde o DB interno deve ser restaurado)
+                 # CORREÇÃO: Remova a chamada a page.get_app_data_dir()
+                 db_path_destino = "finance.db"
+                 
+                 # Copia o backup para a pasta de dados interna, sobrescrevendo o DB atual
+                 shutil.copy(backup_path_origem, db_path_destino)
 
-                # AVISO IMPORTANTE AO USUÁRIO
-                dlg_aviso = ft.AlertDialog(
-                    modal=True,
-                    title=ft.Text("Restauração Concluída"),
-                    content=ft.Text("Os dados foram restaurados. É necessário reiniciar o aplicativo para que as alterações tenham efeito."),
-                    actions=[
-                        ft.TextButton("OK", on_click=lambda _: page.close(dlg_aviso)),
-                    ],
-                )
-                page.open(dlg_aviso)
-                
-            except Exception as ex:
-                print(f"Erro ao restaurar backup: {ex}")
+                 # (O resto da sua função com a lógica de recarregar os dados que implementamos antes)
+                 carregar_dados_iniciais()
+                 carregar_metas()
+                 navigate(None)
+                 
+                 dlg_sucesso = ft.AlertDialog(
+                     modal=True,
+                     title=ft.Text("Restauração Concluída"),
+                     content=ft.Text("Seus dados foram restaurados com sucesso!"),
+                     actions=[
+                         ft.TextButton("OK", on_click=lambda _: page.close(dlg_sucesso)),
+                     ],
+                 )
+                 page.open(dlg_sucesso)
+                 
+             except Exception as ex:
+                 print(f"Erro ao restaurar backup: {ex}")
+                 page.snack_bar = ft.SnackBar(ft.Text(f"Erro ao restaurar: {ex}"), bgcolor="red")
+                 page.snack_bar.open = True
+                 page.update()
     
     # Instâncias do FilePicker
     file_picker_salvar = ft.FilePicker(on_result=salvar_backup_result)
@@ -134,10 +151,15 @@ def carregar_interface_principal(page: ft.Page):
         page.update()
 
 
+    # SUBSTITUA SUA FUNÇÃO ANTIGA POR ESTA VERSÃO FINAL ✅
+
     def atualizar_carteira():
-        lista_metas.controls.clear()
+        # Limpa apenas os cards de metas antigos, preservando o título "Carteira"
+        if len(carteira_view.controls) > 1:
+            del carteira_view.controls[1:]
+
         if not todas_metas:
-            lista_metas.controls.append(
+            carteira_view.controls.append(
                 ft.Column(
                     horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                     controls=[
@@ -146,58 +168,48 @@ def carregar_interface_principal(page: ft.Page):
                     ],
                 )
             )
-        for meta in todas_metas:
-            objetivo = float(meta["valor_objetivo"])
-            atual = float(meta["valor_atual"])
-            progresso = (atual / objetivo) if objetivo > 0 else 0.0
-            progresso = max(0.0, min(1.0, progresso))
-            lista_metas.controls.append(
-                ft.Card(
-                    elevation=5,
-                    content=ft.Container(
-                        padding=12,
-                        content=ft.Column(
-                            spacing=10,
-                            controls=[
-                                ft.Row(
-                                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                                    controls=[
-                                        ft.Text(meta["nome"], size=18, weight=ft.FontWeight.BOLD),
-                                        ft.Text(f"{progresso*100:,.0f}%", size=14),
-                                    ],
-                                ),
-                                ft.Text(
-                                    f"Guardado: R$ {atual:,.2f} / R$ {objetivo:,.2f}",
-                                    size=13,
-                                    color="grey",
-                                ),
-                                ft.ProgressBar(value=progresso, width=320),
-                                ft.Row(
-                                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                                    controls=[
-                                        ft.ElevatedButton(
-                                            "Depositar",
-                                            icon=ft.Icons.ADD_CIRCLE_OUTLINE,
-                                            on_click=lambda e, m=meta: abrir_dialogo_deposito(m),
-                                        ),
-                                        ft.OutlinedButton(
-                                            "Retirar",
-                                            icon=ft.Icons.REMOVE_CIRCLE_OUTLINE,
-                                            on_click=lambda e, m=meta: abrir_dialogo_retirada(m),
-                                        ),
-                                        ft.IconButton(
-                                            icon=ft.Icons.DELETE_OUTLINE,
-                                            icon_color="red",
-                                            tooltip="Excluir meta",
-                                            on_click=lambda e, m=meta: abrir_dialogo_excluir_meta(m),
-                                        ),
-                                    ],
-                                ),
-                            ],
+        else:
+            for meta in todas_metas:
+                objetivo = float(meta["valor_objetivo"])
+                atual = float(meta["valor_atual"])
+                progresso = (atual / objetivo) if objetivo > 0 else 0.0
+                progresso = max(0.0, min(1.0, progresso))
+                
+                # Adiciona o card da meta DIRETAMENTE na carteira_view
+                carteira_view.controls.append(
+                    ft.Card(
+                        elevation=5,
+                        content=ft.Container(
+                            padding=12,
+                            content=ft.Column(
+                                spacing=10,
+                                controls=[
+                                    ft.Row(
+                                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                        controls=[
+                                            ft.Text(meta["nome"], size=18, weight=ft.FontWeight.BOLD),
+                                            ft.Text(f"{progresso*100:,.0f}%", size=14),
+                                        ],
+                                    ),
+                                    ft.Text(
+                                        f"Guardado: R$ {atual:,.2f} / R$ {objetivo:,.2f}",
+                                        size=13,
+                                        color="grey",
+                                    ),
+                                    ft.ProgressBar(value=progresso, width=320),
+                                    ft.Row(
+                                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                        controls=[
+                                            ft.ElevatedButton( "Depositar", icon=ft.Icons.ADD_CIRCLE_OUTLINE, on_click=lambda e, m=meta: abrir_dialogo_deposito(m)),
+                                            ft.OutlinedButton( "Retirar", icon=ft.Icons.REMOVE_CIRCLE_OUTLINE, on_click=lambda e, m=meta: abrir_dialogo_retirada(m)),
+                                            ft.IconButton( icon=ft.Icons.DELETE_OUTLINE, icon_color="red", tooltip="Excluir meta", on_click=lambda e, m=meta: abrir_dialogo_excluir_meta(m)),
+                                        ],
+                                    ),
+                                ],
+                            ),
                         ),
-                    ),
+                    )
                 )
-            )
         page.update()
 
 
@@ -403,7 +415,6 @@ def carregar_interface_principal(page: ft.Page):
         else:  # Receitas ou Despesas
             tipo_filtro = "Receita" if filtro_selecionado == 1 else "Despesa"
 
-            # Popula e exibe o sub-filtro de categoria
             categorias_do_tipo = sorted(list(set([t['categoria'] for t in transacoes if t['tipo'] == tipo_filtro])))
             if categorias_do_tipo:
                 filtro_subcategoria_dashboard.visible = True
@@ -412,7 +423,6 @@ def carregar_interface_principal(page: ft.Page):
                 if filtro_subcategoria_dashboard.value not in [opt.key for opt in opcoes_filtro]:
                     filtro_subcategoria_dashboard.value = "Todas"
 
-            # Filtra transações com base no sub-filtro
             transacoes_do_tipo = [t for t in transacoes if t['tipo'] == tipo_filtro]
             subcategoria_selecionada = filtro_subcategoria_dashboard.value
 
@@ -421,7 +431,6 @@ def carregar_interface_principal(page: ft.Page):
             else:
                 transacoes_para_exibir = [t for t in transacoes_do_tipo if t['categoria'] == subcategoria_selecionada]
 
-            # Atualiza UI
             gerar_grafico_por_tipo(transacoes_do_tipo, tipo_filtro)
             card_resumo_dashboard_geral.visible = False
             card_resumo_dashboard_filtrado.visible = True
@@ -436,8 +445,10 @@ def carregar_interface_principal(page: ft.Page):
             txt_resumo_filtrado_valor.value = f"R$ {total_filtrado:,.2f}"
             txt_resumo_filtrado_valor.color = "green" if tipo_filtro == "Receita" else "red"
 
+        # Atualiza histórico
         atualizar_historico(transacoes_para_exibir)
 
+        # Totais
         total_gasto = sum(float(t['valor']) for t in transacoes if t['tipo'] == "Despesa")
         total_ganho = sum(float(t['valor']) for t in transacoes if t['tipo'] == "Receita")
         lucro = total_ganho - total_gasto
@@ -446,6 +457,19 @@ def carregar_interface_principal(page: ft.Page):
         txt_total_ganho_mes.value = f"R$ {total_ganho:,.2f}"
         txt_lucro_mes.value = f"R$ {lucro:,.2f}"
         txt_lucro_mes.color = "green" if lucro >= 0 else "red"
+
+        # 🔥 MONTA A LISTA DE COMPONENTES DO DASHBOARD
+        dashboard_view.controls.clear()
+        dashboard_view.controls.extend([
+            mes_selector,
+            filtro_dashboard,
+            filtro_subcategoria_dashboard,
+            card_grafico,
+            ver_transacoes_btn,
+            historico_container,
+            card_resumo_dashboard_geral,
+            card_resumo_dashboard_filtrado,
+        ])
 
     def gerar_grafico_geral(transacoes):
         card_grafico_titulo.value = "Receitas x Despesas"
@@ -831,34 +855,28 @@ def carregar_interface_principal(page: ft.Page):
     )
 
     dashboard_view = ft.Column(
-        [
-            mes_selector,
-            filtro_dashboard,
-            filtro_subcategoria_dashboard,
-            card_grafico,
-            ver_transacoes_btn,
-            historico_container,
-            ft.Divider(),
-            card_resumo_dashboard_geral,
-            card_resumo_dashboard_filtrado
-        ],
+        controls=[],
         spacing=15,
         scroll=ft.ScrollMode.AUTO,
-        visible=False
+        visible=False,
+        expand=True,
     )
 
+
+
     # ---- (NOVO) Carteira ----
-    lista_metas = ft.Column(spacing=10, scroll=ft.ScrollMode.AUTO)
+    # CÓDIGO CORRIGIDO ✅
     carteira_view = ft.Column(
         [
             ft.Text("Carteira", size=24, weight=ft.FontWeight.BOLD),
-            lista_metas
+            # A lista de metas será adicionada aqui pela função abaixo
         ],
         spacing=15,
         scroll=ft.ScrollMode.AUTO,
         horizontal_alignment=ft.CrossAxisAlignment.CENTER,
         visible=False
     )
+
     configuracoes_view = ft.Column(
         [
             ft.Text("Ajustes", size=24, weight=ft.FontWeight.BOLD),
@@ -908,6 +926,9 @@ def carregar_interface_principal(page: ft.Page):
         carteira_view.visible = (index == 2)
         configuracoes_view.visible = (index == 3) # <--- ADICIONE ESTA LINHA
 
+        if index == 1:  # Dashboard
+            atualizar_views()
+
         # Reseta o filtro de subcategoria ao trocar de aba principal
         filtro_subcategoria_dashboard.value = "Todas"
 
@@ -926,18 +947,26 @@ def carregar_interface_principal(page: ft.Page):
         ]
     )
 
+    # SUBSTITUA SEU BLOCO page.add(...) ANTIGO POR ESTE CÓDIGO FINAL ✅
+
     page.add(
-        ft.Container(
-            padding=ft.padding.symmetric(horizontal=15),
+        ft.Column(  # Usamos uma Column como container principal
             expand=True,
-            content=ft.Stack(
-                [
-                    inicio_view,
-                    dashboard_view,
-                    carteira_view,
-                    configuracoes_view, # <--- ADICIONE ESTA LINHA
-                ]
-            )
+            controls=[
+                # Este Container ocupa todo o espaço, com padding para a barra de status
+                ft.Container(
+                    expand=True,
+                    padding=ft.padding.only(top=40, left=15, right=15, bottom=15),
+                    content=ft.Stack(
+                        [
+                            inicio_view,
+                            dashboard_view,
+                            carteira_view,
+                            configuracoes_view,
+                        ]
+                    )
+                )
+            ]
         )
     )
 
