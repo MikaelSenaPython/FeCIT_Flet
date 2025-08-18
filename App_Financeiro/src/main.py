@@ -4,6 +4,8 @@ from datetime import datetime, timedelta
 import itertools
 import database as db
 from calendar import month_name
+import os
+import shutil
 
 # 🔑 senha única do app
 APP_PASSWORD = "162408"
@@ -65,6 +67,55 @@ def carregar_interface_principal(page: ft.Page):
 
     # --- Banco de dados ---
     db.criar_tabelas(page)
+
+    # --- Funções de Backup / Restauração ---
+    def salvar_backup_result(e: ft.FilePickerResultEvent):
+        if e.path: # O usuário selecionou um local e nome de arquivo
+            try:
+                # Caminho de origem (onde o seu DB está salvo internamente)
+                db_path_origem = os.path.join(page.get_app_data_dir(), "finance.db")
+                
+                # Copia o arquivo para o destino escolhido pelo usuário
+                shutil.copy(db_path_origem, e.path)
+                
+                page.snack_bar = ft.SnackBar(ft.Text(f"Backup salvo com sucesso em {e.path}!"), bgcolor="green")
+                page.snack_bar.open = True
+                page.update()
+            except Exception as ex:
+                print(f"Erro ao salvar backup: {ex}")
+                # Adicionar um SnackBar de erro aqui seria uma boa ideia
+
+    def restaurar_backup_result(e: ft.FilePickerResultEvent):
+        if e.files: # O usuário selecionou um arquivo
+            try:
+                # Caminho do arquivo de backup selecionado
+                backup_path_origem = e.files[0].path
+                
+                # Caminho de destino (para onde o DB interno deve ser restaurado)
+                db_path_destino = os.path.join(page.get_app_data_dir(), "finance.db")
+                
+                # Copia o backup para a pasta de dados interna, sobrescrevendo o DB atual
+                shutil.copy(backup_path_origem, db_path_destino)
+
+                # AVISO IMPORTANTE AO USUÁRIO
+                dlg_aviso = ft.AlertDialog(
+                    modal=True,
+                    title=ft.Text("Restauração Concluída"),
+                    content=ft.Text("Os dados foram restaurados. É necessário reiniciar o aplicativo para que as alterações tenham efeito."),
+                    actions=[
+                        ft.TextButton("OK", on_click=lambda _: page.close(dlg_aviso)),
+                    ],
+                )
+                page.open(dlg_aviso)
+                
+            except Exception as ex:
+                print(f"Erro ao restaurar backup: {ex}")
+    
+    # Instâncias do FilePicker
+    file_picker_salvar = ft.FilePicker(on_result=salvar_backup_result)
+    file_picker_restaurar = ft.FilePicker(on_result=restaurar_backup_result)
+    
+    page.overlay.extend([file_picker_salvar, file_picker_restaurar])
    
 
     # --- Variáveis de Estado ---
@@ -298,6 +349,11 @@ def carregar_interface_principal(page: ft.Page):
                datetime.strptime(t['data'], "%d/%m/%Y").year == mes_selecionado.year
         ]
         atualizar_resumo_inicio(transacoes_do_mes)
+
+        # --- ADICIONE ESTA LÓGICA AQUI ---
+        now = datetime.now()
+        txt_ultima_atualizacao.value = f"Atualizado em {now.strftime('%d/%m/%Y às %H:%M:%S')}"
+        # ------------------------------------
 
         txt_mes_ano.value = f"{month_name[mes_selecionado.month].capitalize()} {mes_selecionado.year}"
         atualizar_dashboard_view(transacoes_do_mes)
@@ -615,6 +671,8 @@ def carregar_interface_principal(page: ft.Page):
     txt_total_receitas = ft.Text(size=16, weight=ft.FontWeight.BOLD, color="green")
     txt_total_despesas = ft.Text(size=16, weight=ft.FontWeight.BOLD, color="red")
     txt_saldo_final = ft.Text(size=20, weight=ft.FontWeight.BOLD)
+    # ADICIONE A LINHA ABAIXO
+    txt_ultima_atualizacao = ft.Text(size=11, color="grey", italic=True)
     card_resumo = ft.Card(elevation=5, content=ft.Container(padding=15, content=ft.Column([
         ft.Text("Resumo do Mês", size=16, weight=ft.FontWeight.BOLD),
         ft.Row([ft.Icon(ft.Icons.ARROW_UPWARD, color="green"), ft.Text("Receitas:"), txt_total_receitas]),
@@ -622,6 +680,9 @@ def carregar_interface_principal(page: ft.Page):
         ft.Divider(),
         ft.Row([ft.Icon(ft.Icons.ACCOUNT_BALANCE_WALLET), ft.Text("Saldo:", size=18, weight=ft.FontWeight.BOLD),
                 txt_saldo_final]),
+        
+        txt_ultima_atualizacao,
+
     ])))
 
     # -- Componente do Cofre (Início) -- (ATUALIZADO)
@@ -798,6 +859,44 @@ def carregar_interface_principal(page: ft.Page):
         horizontal_alignment=ft.CrossAxisAlignment.CENTER,
         visible=False
     )
+    configuracoes_view = ft.Column(
+        [
+            ft.Text("Ajustes", size=24, weight=ft.FontWeight.BOLD),
+            ft.Card(
+                elevation=4,
+                content=ft.Container(
+                    padding=ft.padding.all(15),
+                    content=ft.Column([
+                        ft.Text("Gerenciamento de Dados", weight=ft.FontWeight.BOLD),
+                        ft.ListTile(
+                            leading=ft.Icon(ft.Icons.UPLOAD_FILE),
+                            title=ft.Text("Fazer Backup dos Dados"),
+                            subtitle=ft.Text("Salva um arquivo de backup em local seguro."),
+                            on_click=lambda _: file_picker_salvar.save_file(
+                                dialog_title="Salvar Backup Como...",
+                                file_name="meu_app_financeiro_backup.db",
+                                allowed_extensions=["db"]
+                            )
+                        ),
+                        ft.Divider(height=5),
+                        ft.ListTile(
+                            leading=ft.Icon(ft.Icons.DOWNLOAD),
+                            title=ft.Text("Restaurar Backup"),
+                            subtitle=ft.Text("Restaura os dados a partir de um arquivo."),
+                            on_click=lambda _: file_picker_restaurar.pick_files(
+                                dialog_title="Selecionar Arquivo de Backup",
+                                allow_multiple=False,
+                                allowed_extensions=["db"]
+                            )
+                        ),
+                    ])
+                )
+            )
+        ],
+        spacing=15,
+        scroll=ft.ScrollMode.AUTO,
+        visible=False  # Começa invisível, como as outras
+    )
 
     # FloatingActionButton global (visível só na Carteira)
     page.floating_action_button = ft.FloatingActionButton(icon=ft.Icons.ADD, on_click=abrir_dialogo_nova_meta)
@@ -807,6 +906,7 @@ def carregar_interface_principal(page: ft.Page):
         inicio_view.visible = (index == 0)
         dashboard_view.visible = (index == 1)
         carteira_view.visible = (index == 2)
+        configuracoes_view.visible = (index == 3) # <--- ADICIONE ESTA LINHA
 
         # Reseta o filtro de subcategoria ao trocar de aba principal
         filtro_subcategoria_dashboard.value = "Todas"
@@ -822,6 +922,7 @@ def carregar_interface_principal(page: ft.Page):
             ft.NavigationBarDestination(icon=ft.Icons.HOME_OUTLINED, selected_icon=ft.Icons.HOME, label="Início"),
             ft.NavigationBarDestination(icon=ft.Icons.PIE_CHART_OUTLINE, selected_icon=ft.Icons.PIE_CHART, label="Dashboard"),
             ft.NavigationBarDestination(icon=ft.Icons.ACCOUNT_BALANCE_WALLET_OUTLINED, selected_icon=ft.Icons.ACCOUNT_BALANCE_WALLET, label="Carteira"),
+            ft.NavigationBarDestination(icon=ft.Icons.SETTINGS_OUTLINED, selected_icon=ft.Icons.SETTINGS, label="Ajustes"),
         ]
     )
 
@@ -834,6 +935,7 @@ def carregar_interface_principal(page: ft.Page):
                     inicio_view,
                     dashboard_view,
                     carteira_view,
+                    configuracoes_view, # <--- ADICIONE ESTA LINHA
                 ]
             )
         )

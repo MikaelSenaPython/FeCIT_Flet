@@ -2,16 +2,13 @@
 import sqlite3
 import os
 
+# database.py - VERSÃO CORRIGIDA E SIMPLIFICADA
 def _get_db_path(page):
-    """Retorna o caminho completo para o arquivo do banco de dados em uma pasta específica do app."""
-    home_dir = os.path.expanduser("~")
-    app_folder_name = "Meu App Financeiro"
-    app_folder_path = os.path.join(home_dir, app_folder_name)
-    
-    if not os.path.exists(app_folder_path):
-        os.makedirs(app_folder_path)
-        
-    return os.path.join(app_folder_path, "finance.db")
+    """Retorna o nome do arquivo do banco de dados. Flet cuidará do local."""
+    # Ao usar um caminho relativo (apenas o nome do arquivo),
+    # o Flet automaticamente o salvará no diretório de dados
+    # apropriado para a plataforma (desktop, Android, iOS).
+    return "finance.db"
 
 def conectar(page):
     """Conecta ao banco de dados SQLite no caminho persistente."""
