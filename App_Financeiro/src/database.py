@@ -2,12 +2,9 @@
 import sqlite3
 import os
 
-# database.py - VERSÃO CORRIGIDA E SIMPLIFICADA
+# database.py - VERSÃO FINAL
 def _get_db_path(page):
     """Retorna o nome do arquivo do banco de dados. Flet cuidará do local."""
-    # Ao usar um caminho relativo (apenas o nome do arquivo),
-    # o Flet automaticamente o salvará no diretório de dados
-    # apropriado para a plataforma (desktop, Android, iOS).
     return "finance.db"
 
 def conectar(page):
@@ -18,8 +15,9 @@ def conectar(page):
     return conn, conn.cursor()
 
 def criar_tabelas(page):
-    """Cria as tabelas de transações e metas se elas não existirem."""
+    """Cria as tabelas de transações, metas e categorias se elas não existirem."""
     conn, cursor = conectar(page)
+
     # Tabela de Transações
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS transacoes (
@@ -31,6 +29,7 @@ def criar_tabelas(page):
             data TEXT NOT NULL
         )
     """)
+
     # Tabela de Metas
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS metas (
@@ -40,11 +39,20 @@ def criar_tabelas(page):
             valor_atual REAL NOT NULL DEFAULT 0
         )
     """)
+
+    # Tabela de Categorias
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS categorias (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nome TEXT NOT NULL UNIQUE,
+            tipo TEXT NOT NULL -- 'Receita' ou 'Despesa'
+        )
+    """)
+
     conn.commit()
     conn.close()
 
 # --- Funções de Transações ---
-
 def adicionar_transacao_db(page, tipo, descricao, valor, categoria, data):
     conn, cursor = conectar(page)
     cursor.execute(
@@ -54,9 +62,15 @@ def adicionar_transacao_db(page, tipo, descricao, valor, categoria, data):
     conn.commit()
     conn.close()
 
-def buscar_transacoes_db(page):
+def buscar_transacoes_db(page, termo_busca=None):
     conn, cursor = conectar(page)
-    cursor.execute("SELECT id, tipo, descricao, valor, categoria, data FROM transacoes ORDER BY substr(data, 7, 4) || substr(data, 4, 2) || substr(data, 1, 2) DESC, id DESC")
+    query = "SELECT id, tipo, descricao, valor, categoria, data FROM transacoes"
+    params = []
+    if termo_busca:
+        query += " WHERE descricao LIKE ?"
+        params.append(f"%{termo_busca}%")
+    query += " ORDER BY substr(data, 7, 4) || substr(data, 4, 2) || substr(data, 1, 2) DESC, id DESC"
+    cursor.execute(query, params)
     transacoes = cursor.fetchall()
     conn.close()
     return transacoes
@@ -77,7 +91,6 @@ def update_transacao_db(page, id, tipo, descricao, valor, categoria, data):
     conn.close()
 
 # --- Funções de Metas ---
-
 def adicionar_meta_db(page, nome, valor_objetivo):
     conn, cursor = conectar(page)
     cursor.execute(
@@ -106,5 +119,42 @@ def atualizar_valor_meta_db(page, meta_id, novo_valor):
 def deletar_meta_db(page, meta_id):
     conn, cursor = conectar(page)
     cursor.execute("DELETE FROM metas WHERE id = ?", (meta_id,))
+    conn.commit()
+    conn.close()
+
+# --- Funções de Categorias ---
+def adicionar_categoria_db(page, nome, tipo):
+    conn, cursor = conectar(page)
+    cursor.execute(
+        "INSERT INTO categorias (nome, tipo) VALUES (?, ?)",
+        (nome, tipo)
+    )
+    conn.commit()
+    conn.close()
+
+def buscar_categorias_db(page, tipo=None):
+    """Busca categorias. Se 'tipo' for especificado, filtra por ele."""
+    conn, cursor = conectar(page)
+    if tipo:
+        cursor.execute("SELECT id, nome, tipo FROM categorias WHERE tipo = ? ORDER BY nome", (tipo,))
+    else:
+        cursor.execute("SELECT id, nome, tipo FROM categorias ORDER BY nome")
+    
+    categorias = cursor.fetchall()
+    conn.close()
+    return categorias
+
+def deletar_categoria_db(page, categoria_id):
+    conn, cursor = conectar(page)
+    cursor.execute("DELETE FROM categorias WHERE id = ?", (categoria_id,))
+    conn.commit()
+    conn.close()
+
+def atualizar_categoria_db(page, categoria_id, novo_nome, novo_tipo):
+    conn, cursor = conectar(page)
+    cursor.execute(
+        "UPDATE categorias SET nome = ?, tipo = ? WHERE id = ?",
+        (novo_nome, novo_tipo, categoria_id)
+    )
     conn.commit()
     conn.close()
