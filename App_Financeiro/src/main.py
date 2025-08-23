@@ -1277,19 +1277,41 @@ class FinancialApp:
                 v = float(valor.value)
                 if v <= 0:
                     raise ValueError
-                novo = float(meta["valor_atual"]) + v
+                
+                # --- Lógica principal ---
+                
+                # 1. Calcula o novo valor da meta
+                novo_valor_meta = float(meta["valor_atual"]) + v
                 objetivo = float(meta["valor_objetivo"])
                 if objetivo > 0:
-                    novo = min(novo, objetivo)
-                db.atualizar_valor_meta_db(self.page, meta["id"], novo)
+                    novo_valor_meta = min(novo_valor_meta, objetivo)
+                
+                # 2. Atualiza o valor na tabela de metas
+                db.atualizar_valor_meta_db(self.page, meta["id"], novo_valor_meta)
+
+                # 3. CRIA A TRANSAÇÃO DE DESPESA CORRESPONDENTE
+                db.adicionar_transacao_db(
+                    self.page,
+                    tipo="Despesa",
+                    descricao=f"Depósito na meta: {meta['nome']}",
+                    valor=v,
+                    categoria="Depósito em Meta",  # Certifique-se que essa categoria existe!
+                    data=datetime.now().strftime("%d/%m/%Y")
+                )
+                
+                # 4. Recarrega todos os dados para atualizar a UI
+                self.atualizar_timestamp_permanente()
                 self.page.close(dialogo)
-                self.carregar_metas()
+                self.carregar_metas() # Recarrega as metas para a view 'Carteira'
+                self.carregar_dados_iniciais() # Recarrega as transações e atualiza o SALDO PRINCIPAL
+
             except ValueError:
-                self.page.snack_bar = ft.SnackBar(ft.Text("Informe um valor válido."), bgcolor="red")
+                self.page.snack_bar = ft.SnackBar(ft.Text("Informe um valor positivo válido."), bgcolor="red")
                 self.page.snack_bar.open = True
                 self.page.update()
-            except Exception:
-                self.page.snack_bar = ft.SnackBar(ft.Text("Erro ao depositar."), bgcolor="red")
+            except Exception as e:
+                print(f"Erro ao depositar: {e}")
+                self.page.snack_bar = ft.SnackBar(ft.Text("Erro ao processar o depósito."), bgcolor="red")
                 self.page.snack_bar.open = True
                 self.page.update()
 
@@ -1311,18 +1333,41 @@ class FinancialApp:
         def confirmar(ev):
             try:
                 v = float(valor.value)
-                if v <= 0:
-                    raise ValueError
-                novo = max(0.0, float(meta["valor_atual"]) - v)
-                db.atualizar_valor_meta_db(self.page, meta["id"], novo)
+                if v <= 0 or v > float(meta["valor_atual"]):
+                    raise ValueError("Valor inválido ou maior que o saldo da meta.")
+
+                # --- Lógica principal ---
+
+                # 1. Calcula o novo valor da meta
+                novo_valor_meta = max(0.0, float(meta["valor_atual"]) - v)
+                
+                # 2. Atualiza o valor na tabela de metas
+                db.atualizar_valor_meta_db(self.page, meta["id"], novo_valor_meta)
+
+                # 3. CRIA A TRANSAÇÃO DE RECEITA CORRESPONDENTE
+                db.adicionar_transacao_db(
+                    self.page,
+                    tipo="Receita",
+                    descricao=f"Retirada da meta: {meta['nome']}",
+                    valor=v,
+                    categoria="Retirada de Meta", # Certifique-se que essa categoria existe!
+                    data=datetime.now().strftime("%d/%m/%Y")
+                )
+
+                # 4. Recarrega todos os dados para atualizar a UI
+                self.atualizar_timestamp_permanente()
                 self.page.close(dialogo)
-                self.carregar_metas()
-            except ValueError:
-                self.page.snack_bar = ft.SnackBar(ft.Text("Informe um valor válido."), bgcolor="red")
+                self.carregar_metas() # Recarrega as metas para a view 'Carteira'
+                self.carregar_dados_iniciais() # Recarrega as transações e atualiza o SALDO PRINCIPAL
+
+            except ValueError as e:
+                error_message = str(e) if str(e) else "Informe um valor válido e menor que o saldo da meta."
+                self.page.snack_bar = ft.SnackBar(ft.Text(error_message), bgcolor="red")
                 self.page.snack_bar.open = True
                 self.page.update()
-            except Exception:
-                self.page.snack_bar = ft.SnackBar(ft.Text("Erro ao retirar."), bgcolor="red")
+            except Exception as e:
+                print(f"Erro ao retirar: {e}")
+                self.page.snack_bar = ft.SnackBar(ft.Text("Erro ao processar a retirada."), bgcolor="red")
                 self.page.snack_bar.open = True
                 self.page.update()
 
