@@ -73,20 +73,28 @@ def carregar_interface_principal(page: ft.Page):
 
     def testar_conexao_categorias(e):
         print("--- INICIANDO TESTE DE CATEGORIAS ---")
-    try:
-        categorias_no_db = db.buscar_categorias_db(page)
-        if not categorias_no_db:
-            print("RESULTADO: O banco de dados NÃO retornou nenhuma categoria. A lista está vazia.")
-        else:
-            print(f"RESULTADO: Sucesso! Encontradas {len(categorias_no_db)} categorias.")
-            for cat in categorias_no_db:
-                # Convertendo para um dicionário para imprimir de forma legível
-                print(f"  - {dict(cat)}")
-    except Exception as ex:
-        print(f"ERRO NO TESTE: Ocorreu uma exceção ao buscar categorias: {ex}")
-    print("--- FIM DO TESTE ---")
+        try:
+            categorias_no_db = db.buscar_categorias_db(page)
+            if not categorias_no_db:
+                print("RESULTADO: O banco de dados NÃO retornou nenhuma categoria. A lista está vazia.")
+            else:
+                print(f"RESULTADO: Sucesso! Encontradas {len(categorias_no_db)} categorias.")
+                for cat in categorias_no_db:
+                    # Convertendo para um dicionário para imprimir de forma legível
+                    print(f"  - {dict(cat)}")
+        except Exception as ex:
+            print(f"ERRO NO TESTE: Ocorreu uma exceção ao buscar categorias: {ex}")
+        print("--- FIM DO TESTE ---")
 
     # --- Funções de Backup / Restauração ---
+
+    def atualizar_timestamp_permanente():
+        """Atualiza o texto da UI e salva a data no banco de dados."""
+        now_str = f"Última alteração: {datetime.now().strftime('%d/%m/%Y às %H:%M:%S')}"
+        txt_ultima_atualizacao.value = now_str
+        db.set_config_value_db(page, 'ultima_alteracao', now_str)
+        page.update() # Garante que a mudança seja visível imediatamente
+
     def criar_imagem_grafico(dados_categoria, titulo, caminho_arquivo):
         """Cria e salva um gráfico de pizza como uma imagem PNG."""
         if not dados_categoria:
@@ -105,6 +113,11 @@ def carregar_interface_principal(page: ft.Page):
         return True
 
     def gerar_relatorio_pdf(caminho_destino):
+        """
+        Gera um relatório PDF completo com base nos filtros definidos na tela de Relatórios.
+        Inclui resumo, gráficos e uma lista detalhada de transações.
+        """
+        # 1. Validação de Entrada: Garante que um período foi selecionado
         if not data_inicio_relatorio.value or not data_fim_relatorio.value:
             page.snack_bar = ft.SnackBar(ft.Text("Por favor, selecione um período de datas."), bgcolor="orange")
             page.snack_bar.open = True
@@ -115,24 +128,39 @@ def carregar_interface_principal(page: ft.Page):
             data_inicio = datetime.strptime(data_inicio_relatorio.value, "%d/%m/%Y")
             data_fim = datetime.strptime(data_fim_relatorio.value, "%d/%m/%Y")
             
-            transacoes_periodo = [
+            # 2. Filtragem dos Dados
+            # Filtro primário por DATA
+            transacoes_filtradas = [
                 t for t in todas_transacoes
                 if data_inicio <= datetime.strptime(t['data'], "%d/%m/%Y") <= data_fim
             ]
 
-            receitas_total = sum(float(t['valor']) for t in transacoes_periodo if t['tipo'] == "Receita")
-            despesas_total = sum(float(t['valor']) for t in transacoes_periodo if t['tipo'] == "Despesa")
+            # Filtro secundário por TIPO (Receita/Despesa)
+            tipo_filtro = filtro_tipo_relatorio.value
+            if tipo_filtro != "Todas":
+                transacoes_filtradas = [t for t in transacoes_filtradas if t['tipo'] == tipo_filtro]
+
+            # Filtro terciário por CATEGORIA
+            cat_filtro = filtro_categoria_relatorio.value
+            if cat_filtro != "Todas":
+                transacoes_filtradas = [t for t in transacoes_filtradas if t['categoria'] == cat_filtro]
+            
+            # 3. Cálculos e Agregação de Dados para Gráficos
+            receitas_total = sum(float(t['valor']) for t in transacoes_filtradas if t['tipo'] == "Receita")
+            despesas_total = sum(float(t['valor']) for t in transacoes_filtradas if t['tipo'] == "Despesa")
             saldo = receitas_total - despesas_total
             
-            dados_despesas_cat = {c: sum(float(t['valor']) for t in transacoes_periodo if t['tipo'] == 'Despesa' and t['categoria'] == c) for c in set(t['categoria'] for t in transacoes_periodo if t['tipo'] == 'Despesa')}
-            dados_receitas_cat = {c: sum(float(t['valor']) for t in transacoes_periodo if t['tipo'] == 'Receita' and t['categoria'] == c) for c in set(t['categoria'] for t in transacoes_periodo if t['tipo'] == 'Receita')}
+            dados_despesas_cat = {c: sum(float(t['valor']) for t in transacoes_filtradas if t['tipo'] == 'Despesa' and t['categoria'] == c) for c in set(t['categoria'] for t in transacoes_filtradas if t['tipo'] == 'Despesa')}
+            dados_receitas_cat = {c: sum(float(t['valor']) for t in transacoes_filtradas if t['tipo'] == 'Receita' and t['categoria'] == c) for c in set(t['categoria'] for t in transacoes_filtradas if t['tipo'] == 'Receita')}
 
+            # 4. Geração das Imagens dos Gráficos
             grafico_despesas_path = "grafico_despesas.png"
             grafico_receitas_path = "grafico_receitas.png"
             
             tem_grafico_despesas = criar_imagem_grafico(dados_despesas_cat, "Composição de Despesas", grafico_despesas_path)
             tem_grafico_receitas = criar_imagem_grafico(dados_receitas_cat, "Composição de Receitas", grafico_receitas_path)
             
+            # 5. Construção do Documento PDF
             pdf = FPDF()
             pdf.add_page()
             pdf.set_font("Arial", "B", 16)
@@ -156,19 +184,21 @@ def carregar_interface_principal(page: ft.Page):
                 pdf.image(grafico_receitas_path, x=10, y=None, w=180)
                 pdf.ln(5)
             
-            if transacoes_periodo:
+            if transacoes_filtradas:
                 pdf.add_page()
                 pdf.set_font("Arial", "B", 12); pdf.cell(0, 10, "Detalhes das Transações", 0, 1, "L")
                 pdf.set_font("Arial", "B", 10)
                 pdf.cell(25, 8, "Data", 1); pdf.cell(85, 8, "Descrição", 1); pdf.cell(35, 8, "Categoria", 1); pdf.cell(40, 8, "Valor (R$)", 1); pdf.ln()
                 pdf.set_font("Arial", "", 10)
-                for t in transacoes_periodo:
-                    descricao = t['descricao'].encode('latin-1', 'replace').decode('latin-1'); categoria = t['categoria'].encode('latin-1', 'replace').decode('latin-1')
+                for t in transacoes_filtradas:
+                    descricao = t['descricao'].encode('latin-1', 'replace').decode('latin-1')
+                    categoria = t['categoria'].encode('latin-1', 'replace').decode('latin-1')
                     pdf.set_text_color(0, 128, 0) if t['tipo'] == 'Receita' else pdf.set_text_color(255, 0, 0)
                     valor_str = f"+{float(t['valor']):,.2f}" if t['tipo'] == 'Receita' else f"-{float(t['valor']):,.2f}"
                     pdf.cell(25, 8, t['data'], 1); pdf.cell(85, 8, descricao, 1); pdf.cell(35, 8, categoria, 1); pdf.cell(40, 8, valor_str, 1); pdf.ln()
                 pdf.set_text_color(0, 0, 0)
 
+            # 6. Salvar o arquivo PDF
             pdf.output(caminho_destino)
             page.snack_bar = ft.SnackBar(ft.Text("Relatório PDF salvo com sucesso!"), bgcolor="green"); page.snack_bar.open = True
         
@@ -177,9 +207,9 @@ def carregar_interface_principal(page: ft.Page):
             page.snack_bar = ft.SnackBar(ft.Text(f"Erro ao gerar PDF: {ex}"), bgcolor="red"); page.snack_bar.open = True
         
         finally:
-            # Limpar arquivos de imagem temporários
-            if os.path.exists(grafico_despesas_path): os.remove(grafico_despesas_path)
-            if os.path.exists(grafico_receitas_path): os.remove(grafico_receitas_path)
+            # 7. Limpar arquivos de imagem temporários, mesmo que ocorra um erro
+            if os.path.exists("grafico_despesas.png"): os.remove("grafico_despesas.png")
+            if os.path.exists("grafico_receitas.png"): os.remove("grafico_receitas.png")
 
         page.update()
     
@@ -608,10 +638,7 @@ def carregar_interface_principal(page: ft.Page):
 
         atualizar_resumo_inicio(transacoes_do_mes)
 
-        now = datetime.now()
-        txt_ultima_atualizacao.value = (
-            f"Atualizado em {now.strftime('%d/%m/%Y às %H:%M:%S')}"
-        )
+
         txt_mes_ano.value = (
             f"{month_name[mes_selecionado.month].capitalize()} {mes_selecionado.year}"
         )
@@ -962,6 +989,7 @@ def carregar_interface_principal(page: ft.Page):
 
         txt_descricao.value, txt_valor.value, dd_categoria.value = "", "", None
         txt_data_selecionada.value = "Selecione uma data..."
+        atualizar_timestamp_permanente()
         carregar_dados_iniciais()
 
     def cancelar_edicao(e):
@@ -1079,6 +1107,43 @@ def carregar_interface_principal(page: ft.Page):
     # =====================================================================
     # ======================= COMPONENTES DE INTERFACE =====================
     # =====================================================================
+    filtro_tipo_relatorio = ft.Dropdown(
+        label="Filtrar por Tipo",
+        options=[
+            ft.dropdown.Option("Todas"),
+            ft.dropdown.Option("Receita"),
+            ft.dropdown.Option("Despesa"),
+        ],
+        value="Todas",
+        expand=True,
+    )
+
+    filtro_categoria_relatorio = ft.Dropdown(
+        label="Filtrar por Categoria",
+        options=[ft.dropdown.Option("Todas")],
+        value="Todas",
+        expand=True,
+        disabled=True # Começa desabilitado
+    )
+    def tipo_relatorio_changed(e):
+        """Atualiza as opções de categoria na tela de relatórios."""
+        tipo = filtro_tipo_relatorio.value
+        if tipo == "Todas":
+            # Se selecionar "Todas", busca todas as categorias
+            categorias_db = db.buscar_categorias_db(page)
+            filtro_categoria_relatorio.disabled = False
+        else:
+            # Busca apenas as categorias do tipo selecionado
+            categorias_db = db.buscar_categorias_db(page, tipo=tipo)
+            filtro_categoria_relatorio.disabled = False
+
+        opcoes = [ft.dropdown.Option("Todas")] + [ft.dropdown.Option(cat['nome']) for cat in categorias_db]
+        filtro_categoria_relatorio.options = opcoes
+        filtro_categoria_relatorio.value = "Todas" # Reseta a seleção
+        page.update()
+
+    # Conecte a função ao componente
+    filtro_tipo_relatorio.on_change = tipo_relatorio_changed
 
     # Dialogo confirmação de exclusão de transação
     dialogo_confirmacao = ft.AlertDialog(
@@ -1461,53 +1526,7 @@ def carregar_interface_principal(page: ft.Page):
         [
             ft.Text("Ajustes", size=24, weight=ft.FontWeight.BOLD),
             
-            # NOVO Card de Relatórios com seleção de período
-            ft.Card(
-                elevation=4,
-                content=ft.Container(
-                    padding=15,
-                    content=ft.Column([
-                        ft.Text("Relatórios em PDF", weight=ft.FontWeight.BOLD),
-                        ft.Text("Selecione um período para gerar o relatório."),
-
-                        # Seletores de Data Manuais
-                        ft.Row([
-                            ft.Text("De:"), data_inicio_relatorio,
-                            ft.IconButton(icon=ft.Icons.CALENDAR_MONTH, on_click=abrir_datepicker_relatorio, data="inicio"),
-                            ft.Text("Até:"), data_fim_relatorio,
-                            ft.IconButton(icon=ft.Icons.CALENDAR_MONTH, on_click=abrir_datepicker_relatorio, data="fim"),
-                        ], alignment=ft.MainAxisAlignment.SPACE_AROUND),
-                        
-                        # Botões de Atalho para períodos
-                        ft.Row([
-                            ft.ElevatedButton("Mês Atual", on_click=definir_periodo_relatorio, data="mes", expand=True),
-                            ft.ElevatedButton("3 Meses", on_click=definir_periodo_relatorio, data="3_meses", expand=True),
-                        ]),
-                        ft.Row([
-                            ft.ElevatedButton("6 Meses", on_click=definir_periodo_relatorio, data="6_meses", expand=True),
-                            ft.ElevatedButton("1 Ano", on_click=definir_periodo_relatorio, data="ano", expand=True),
-                        ]),
-                        
-                        ft.Divider(height=20),
-                        
-                        # Botão principal para gerar o PDF
-                        ft.ElevatedButton(
-                            "Gerar e Salvar PDF",
-                            icon=ft.Icons.PICTURE_AS_PDF,
-                            bgcolor=ft.Colors.RED_700,
-                            color=ft.Colors.WHITE,
-                            on_click=lambda _: file_picker_salvar_pdf.save_file(
-                                dialog_title="Salvar Relatório PDF Como...",
-                                file_name=f"relatorio_financeiro.pdf",
-                                allowed_extensions=["pdf"]
-                            ),
-                            expand=True
-                        ),
-                    ])
-                )
-            ),
-            
-            # Card de Gerenciamento de Categorias (permanece igual)
+            # Card de Gerenciamento de Categorias
             ft.Card(
                 elevation=4,
                 content=ft.Container(
@@ -1540,6 +1559,64 @@ def carregar_interface_principal(page: ft.Page):
         visible=False
     )
 
+    # main.py
+
+    relatorios_view = ft.Column(
+        [
+            ft.Text("Relatórios", size=24, weight=ft.FontWeight.BOLD),
+            ft.Card(
+                elevation=4,
+                content=ft.Container(
+                    padding=15,
+                    content=ft.Column([
+                        ft.Text("Filtros do Relatório", weight=ft.FontWeight.BOLD),
+                        
+                        # Filtros de Tipo e Categoria
+                        ft.Row([filtro_tipo_relatorio, filtro_categoria_relatorio]),
+                        
+                        ft.Divider(height=10),
+                        
+                        # Seletores de Data
+                        ft.Text("Selecione um Período"),
+                        ft.Row([
+                            ft.Text("De:"), data_inicio_relatorio,
+                            ft.IconButton(icon=ft.Icons.CALENDAR_MONTH, on_click=abrir_datepicker_relatorio, data="inicio"),
+                            ft.Text("Até:"), data_fim_relatorio,
+                            ft.IconButton(icon=ft.Icons.CALENDAR_MONTH, on_click=abrir_datepicker_relatorio, data="fim"),
+                        ], alignment=ft.MainAxisAlignment.SPACE_AROUND),
+                        
+                        # Botões de Atalho
+                        ft.Row([
+                            ft.ElevatedButton("Mês Atual", on_click=definir_periodo_relatorio, data="mes", expand=True),
+                            ft.ElevatedButton("3 Meses", on_click=definir_periodo_relatorio, data="3_meses", expand=True),
+                        ]),
+                        ft.Row([
+                            ft.ElevatedButton("6 Meses", on_click=definir_periodo_relatorio, data="6_meses", expand=True),
+                            ft.ElevatedButton("1 Ano", on_click=definir_periodo_relatorio, data="ano", expand=True),
+                        ]),
+                        
+                        ft.Divider(height=20),
+                        
+                        # Botão para Gerar
+                        ft.ElevatedButton(
+                            "Gerar e Salvar PDF", icon=ft.Icons.PICTURE_AS_PDF,
+                            bgcolor=ft.Colors.RED_700, color=ft.Colors.WHITE,
+                            on_click=lambda _: file_picker_salvar_pdf.save_file(
+                                dialog_title="Salvar Relatório PDF Como...",
+                                file_name=f"relatorio_financeiro.pdf",
+                                allowed_extensions=["pdf"]
+                            ),
+                            expand=True
+                        ),
+                    ])
+                )
+            )
+        ],
+        spacing=15,
+        scroll=ft.ScrollMode.AUTO,
+        visible=False # Começa invisível
+    )
+
     # FAB global (visível só na Carteira)
     page.floating_action_button = ft.FloatingActionButton(
         icon=ft.Icons.ADD, on_click=abrir_dialogo_nova_meta
@@ -1547,20 +1624,20 @@ def carregar_interface_principal(page: ft.Page):
 
     def navigate(e):
         index = page.navigation_bar.selected_index
-        inicio_view.visible = index == 0
-        dashboard_view.visible = index == 1
-        carteira_view.visible = index == 2
-        configuracoes_view.visible = index == 3
+        inicio_view.visible = (index == 0)
+        dashboard_view.visible = (index == 1)
+        carteira_view.visible = (index == 2)
+        relatorios_view.visible = (index == 3) # <-- NOVA LÓGICA
+        configuracoes_view.visible = (index == 4) # <-- ÍNDICE ATUALIZADO
 
-        if index == 1:  # Dashboard
+        if index == 1:
             atualizar_views()
-        if index == 3:  # Ajustes
+        if index == 3: # Se abriu a tela de Relatórios
+            tipo_relatorio_changed(None) # Para carregar as categorias
+        if index == 4: # Se abriu a tela de Ajustes
             carregar_e_exibir_categorias()
 
-        filtro_subcategoria_dashboard.value = "Todas"
-
-        # FAB só na Carteira
-        page.floating_action_button.visible = index == 2
+        page.floating_action_button.visible = (index == 2) # FAB só na Carteira
         page.update()
 
     page.navigation_bar = ft.NavigationBar(
@@ -1580,6 +1657,12 @@ def carregar_interface_principal(page: ft.Page):
                 selected_icon=ft.Icons.ACCOUNT_BALANCE_WALLET,
                 label="Carteira",
             ),
+
+            ft.NavigationBarDestination(
+                icon=ft.Icons.ASSESSMENT_OUTLINED, 
+                selected_icon=ft.Icons.ASSESSMENT, 
+                label="Relatórios"),
+
             ft.NavigationBarDestination(
                 icon=ft.Icons.SETTINGS_OUTLINED,
                 selected_icon=ft.Icons.SETTINGS,
@@ -1597,7 +1680,7 @@ def carregar_interface_principal(page: ft.Page):
                     expand=True,
                     padding=ft.padding.only(top=40, left=15, right=15, bottom=15),
                     content=ft.Stack(
-                        [inicio_view, dashboard_view, carteira_view, configuracoes_view]
+                        [inicio_view, dashboard_view, carteira_view, relatorios_view, configuracoes_view]
                     ),
                 )
             ],
@@ -1608,7 +1691,14 @@ def carregar_interface_principal(page: ft.Page):
     carregar_dados_iniciais()
     carregar_metas()
     carregar_e_exibir_categorias()  # pré-carrega lista em Ajustes
-    dd_categoria.options = [ft.dropdown.Option(cat['nome']) for cat in db.buscar_categorias_db(page)]  # atualiza dropdown
+
+    timestamp_salvo = db.get_config_value_db(page, 'ultima_alteracao')
+    if timestamp_salvo:
+        txt_ultima_atualizacao.value = timestamp_salvo
+    else:
+        txt_ultima_atualizacao.value = "Nenhuma alteração registrada."
+
+    dd_categoria.options = [ft.dropdown.Option(cat['nome']) for cat in db.buscar_categorias_db(page)]
     page.floating_action_button.visible = False
     page.update()
 

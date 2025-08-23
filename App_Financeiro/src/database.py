@@ -22,6 +22,12 @@ def criar_tabelas(page):
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS categorias (id INTEGER PRIMARY KEY AUTOINCREMENT, nome TEXT NOT NULL UNIQUE, tipo TEXT NOT NULL)
     """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS app_config (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        )
+    """)
     conn.commit()
     conn.close()
 
@@ -113,4 +119,18 @@ def deletar_categoria_db(page, categoria_id):
     conn.commit()
     conn.close()
 
-# --- NOVAS FUNÇÕES PARA BACKUP/RESTAURAÇÃO JSON ---
+def get_config_value_db(page, key):
+    """Busca um valor de configuração pela chave."""
+    conn, cursor = conectar(page)
+    cursor.execute("SELECT value FROM app_config WHERE key = ?", (key,))
+    row = cursor.fetchone()
+    conn.close()
+    return row['value'] if row else None
+
+def set_config_value_db(page, key, value):
+    """Salva ou atualiza um valor de configuração."""
+    conn, cursor = conectar(page)
+    # "REPLACE INTO" insere se a chave não existe, ou atualiza se já existe
+    cursor.execute("REPLACE INTO app_config (key, value) VALUES (?, ?)", (key, value))
+    conn.commit()
+    conn.close()
