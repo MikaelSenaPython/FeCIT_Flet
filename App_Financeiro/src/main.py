@@ -3,9 +3,11 @@ import flet as ft
 from datetime import datetime, timedelta
 import itertools
 import database as db
-from calendar import month_name
 import os
-import shutil
+from calendar import month_name
+from fpdf import FPDF
+from dateutil.relativedelta import relativedelta
+import matplotlib.pyplot as plt   
 
 # 🔑 senha única do app
 APP_PASSWORD = "162408"
@@ -69,85 +71,136 @@ def carregar_interface_principal(page: ft.Page):
     # --- Banco de dados ---
     db.criar_tabelas(page)
 
+    def testar_conexao_categorias(e):
+        print("--- INICIANDO TESTE DE CATEGORIAS ---")
+    try:
+        categorias_no_db = db.buscar_categorias_db(page)
+        if not categorias_no_db:
+            print("RESULTADO: O banco de dados NÃO retornou nenhuma categoria. A lista está vazia.")
+        else:
+            print(f"RESULTADO: Sucesso! Encontradas {len(categorias_no_db)} categorias.")
+            for cat in categorias_no_db:
+                # Convertendo para um dicionário para imprimir de forma legível
+                print(f"  - {dict(cat)}")
+    except Exception as ex:
+        print(f"ERRO NO TESTE: Ocorreu uma exceção ao buscar categorias: {ex}")
+    print("--- FIM DO TESTE ---")
+
     # --- Funções de Backup / Restauração ---
-    def salvar_backup_result(e: ft.FilePickerResultEvent):
-        if e.path:  # O usuário selecionou um local e nome de arquivo
-            try:
-                # Caminho de origem (onde o seu DB está salvo internamente)
-                db_path_origem = "finance.db"
+    def criar_imagem_grafico(dados_categoria, titulo, caminho_arquivo):
+        """Cria e salva um gráfico de pizza como uma imagem PNG."""
+        if not dados_categoria:
+            return False # Não cria gráfico se não houver dados
 
-                # --- INÍCIO DA ALTERAÇÃO ---
-                # Substitua shutil.copy() pela cópia manual de bytes.
-                # Isso é mais robusto para ambientes móveis.
+        labels = dados_categoria.keys()
+        sizes = dados_categoria.values()
+        
+        fig, ax = plt.subplots()
+        ax.pie(sizes, labels=labels, autopct='%1.1f%%', startangle=90)
+        ax.axis('equal')  # Garante que a pizza seja um círculo.
+        plt.title(titulo)
+        
+        plt.savefig(caminho_arquivo, transparent=True)
+        plt.close(fig) # Fecha a figura para liberar memória
+        return True
 
-                # 1. Abre o arquivo de origem para leitura em modo binário ('rb')
-                with open(db_path_origem, "rb") as f_origem:
-                    # 2. Lê todo o conteúdo (bytes) do banco de dados para a memória
-                    dados_db = f_origem.read()
+    def gerar_relatorio_pdf(caminho_destino):
+        if not data_inicio_relatorio.value or not data_fim_relatorio.value:
+            page.snack_bar = ft.SnackBar(ft.Text("Por favor, selecione um período de datas."), bgcolor="orange")
+            page.snack_bar.open = True
+            page.update()
+            return
 
-                # 3. Abre o arquivo de destino (escolhido pelo usuário) para escrita em modo binário ('wb')
-                with open(e.path, "wb") as f_destino:
-                    # 4. Escreve os dados lidos no novo arquivo
-                    f_destino.write(dados_db)
-                
-                # --- FIM DA ALTERAÇÃO ---
+        try:
+            data_inicio = datetime.strptime(data_inicio_relatorio.value, "%d/%m/%Y")
+            data_fim = datetime.strptime(data_fim_relatorio.value, "%d/%m/%Y")
+            
+            transacoes_periodo = [
+                t for t in todas_transacoes
+                if data_inicio <= datetime.strptime(t['data'], "%d/%m/%Y") <= data_fim
+            ]
 
-                page.snack_bar = ft.SnackBar(
-                    ft.Text(f"Backup salvo com sucesso em {e.path}!"),
-                    bgcolor="green"
-                )
-                page.snack_bar.open = True
-                page.update()
+            receitas_total = sum(float(t['valor']) for t in transacoes_periodo if t['tipo'] == "Receita")
+            despesas_total = sum(float(t['valor']) for t in transacoes_periodo if t['tipo'] == "Despesa")
+            saldo = receitas_total - despesas_total
+            
+            dados_despesas_cat = {c: sum(float(t['valor']) for t in transacoes_periodo if t['tipo'] == 'Despesa' and t['categoria'] == c) for c in set(t['categoria'] for t in transacoes_periodo if t['tipo'] == 'Despesa')}
+            dados_receitas_cat = {c: sum(float(t['valor']) for t in transacoes_periodo if t['tipo'] == 'Receita' and t['categoria'] == c) for c in set(t['categoria'] for t in transacoes_periodo if t['tipo'] == 'Receita')}
 
-            except Exception as ex:
-                print(f"Erro ao salvar backup: {ex}")
-                page.snack_bar = ft.SnackBar(
-                    ft.Text(f"Erro ao salvar: {ex}"), bgcolor="red"
-                )
-                page.snack_bar.open = True
-                page.update()
+            grafico_despesas_path = "grafico_despesas.png"
+            grafico_receitas_path = "grafico_receitas.png"
+            
+            tem_grafico_despesas = criar_imagem_grafico(dados_despesas_cat, "Composição de Despesas", grafico_despesas_path)
+            tem_grafico_receitas = criar_imagem_grafico(dados_receitas_cat, "Composição de Receitas", grafico_receitas_path)
+            
+            pdf = FPDF()
+            pdf.add_page()
+            pdf.set_font("Arial", "B", 16)
 
-    def restaurar_backup_result(e: ft.FilePickerResultEvent):
-        if e.files:
-            try:
-                backup_path_origem = e.files[0].path
-                db_path_destino = "finance.db"
-                shutil.copy(backup_path_origem, db_path_destino)
+            pdf.cell(0, 10, "Relatório Financeiro", 0, 1, "C")
+            pdf.set_font("Arial", "", 12)
+            pdf.cell(0, 10, f"Período: {data_inicio.strftime('%d/%m/%Y')} a {data_fim.strftime('%d/%m/%Y')}", 0, 1, "C")
+            pdf.ln(10)
 
-                carregar_dados_iniciais()
-                carregar_metas()
-                carregar_categorias_ui()
-                dd_categoria.options = carregar_categorias_dropdown()
-                page.update()
+            pdf.set_font("Arial", "B", 12); pdf.cell(0, 10, "Resumo do Período", 0, 1, "L")
+            pdf.set_font("Arial", "", 11)
+            pdf.cell(0, 7, f"Total de Receitas: R$ {receitas_total:,.2f}", 0, 1, "L")
+            pdf.cell(0, 7, f"Total de Despesas: R$ {despesas_total:,.2f}", 0, 1, "L")
+            pdf.set_font("Arial", "B", 11)
+            pdf.cell(0, 7, f"Saldo Final: R$ {saldo:,.2f}", 0, 1, "L"); pdf.ln(10)
 
-                dlg_sucesso = ft.AlertDialog(
-                    modal=True,
-                    title=ft.Text("Restauração Concluída"),
-                    content=ft.Text("Seus dados foram restaurados com sucesso!"),
-                    actions=[
-                        ft.TextButton(
-                            "OK", on_click=lambda _: page.close(dlg_sucesso)
-                        ),
-                    ],
-                )
-                page.open(dlg_sucesso)
-            except Exception as ex:
-                page.snack_bar = ft.SnackBar(
-                    ft.Text(f"Erro ao restaurar: {ex}"), bgcolor="red"
-                )
-                page.snack_bar.open = True
-                page.update()
+            if tem_grafico_despesas:
+                pdf.image(grafico_despesas_path, x=10, y=None, w=180)
+                pdf.ln(5)
+            if tem_grafico_receitas:
+                pdf.image(grafico_receitas_path, x=10, y=None, w=180)
+                pdf.ln(5)
+            
+            if transacoes_periodo:
+                pdf.add_page()
+                pdf.set_font("Arial", "B", 12); pdf.cell(0, 10, "Detalhes das Transações", 0, 1, "L")
+                pdf.set_font("Arial", "B", 10)
+                pdf.cell(25, 8, "Data", 1); pdf.cell(85, 8, "Descrição", 1); pdf.cell(35, 8, "Categoria", 1); pdf.cell(40, 8, "Valor (R$)", 1); pdf.ln()
+                pdf.set_font("Arial", "", 10)
+                for t in transacoes_periodo:
+                    descricao = t['descricao'].encode('latin-1', 'replace').decode('latin-1'); categoria = t['categoria'].encode('latin-1', 'replace').decode('latin-1')
+                    pdf.set_text_color(0, 128, 0) if t['tipo'] == 'Receita' else pdf.set_text_color(255, 0, 0)
+                    valor_str = f"+{float(t['valor']):,.2f}" if t['tipo'] == 'Receita' else f"-{float(t['valor']):,.2f}"
+                    pdf.cell(25, 8, t['data'], 1); pdf.cell(85, 8, descricao, 1); pdf.cell(35, 8, categoria, 1); pdf.cell(40, 8, valor_str, 1); pdf.ln()
+                pdf.set_text_color(0, 0, 0)
 
-    # Instâncias do FilePicker
-    file_picker_salvar = ft.FilePicker(on_result=salvar_backup_result)
-    file_picker_restaurar = ft.FilePicker(on_result=restaurar_backup_result)
-    page.overlay.extend([file_picker_salvar, file_picker_restaurar])
+            pdf.output(caminho_destino)
+            page.snack_bar = ft.SnackBar(ft.Text("Relatório PDF salvo com sucesso!"), bgcolor="green"); page.snack_bar.open = True
+        
+        except Exception as ex:
+            print(f"ERRO AO GERAR PDF: {ex}")
+            page.snack_bar = ft.SnackBar(ft.Text(f"Erro ao gerar PDF: {ex}"), bgcolor="red"); page.snack_bar.open = True
+        
+        finally:
+            # Limpar arquivos de imagem temporários
+            if os.path.exists(grafico_despesas_path): os.remove(grafico_despesas_path)
+            if os.path.exists(grafico_receitas_path): os.remove(grafico_receitas_path)
+
+        page.update()
+    
+    def salvar_pdf_result(e: ft.FilePickerResultEvent):
+        if e.path:
+            gerar_relatorio_pdf(e.path)
+
+    # ATUALIZE as instâncias do FilePicker para usar as novas funções
+    file_picker_salvar_pdf = ft.FilePicker(on_result=salvar_pdf_result)
+    page.overlay.extend([file_picker_salvar_pdf])
 
     # --- Variáveis de Estado ---
     todas_transacoes = []
     todas_metas = []
     mes_selecionado = datetime.now()
     id_em_edicao = ft.Text(value=None, visible=False)
+    lista_categorias_view = ft.ListView(expand=True, spacing=10)
+
+    data_inicio_relatorio = ft.Text(value=None)
+    data_fim_relatorio = ft.Text(value=None)
+    selecionando_data_para = "" # Ajuda a saber se estamos escolhendo a data de início ou fim
 
     # =====================================================================
     # ======================= FUNÇÕES DE METAS ============================
@@ -404,161 +457,137 @@ def carregar_interface_principal(page: ft.Page):
         page.navigation_bar.selected_index = 2
         navigate(None)
 
+    def data_relatorio_selecionada(e):
+        """Chamada quando uma data é escolhida no DatePicker do relatório."""
+        global selecionando_data_para
+        data_formatada = e.control.value.strftime('%d/%m/%Y')
+        
+        if selecionando_data_para == "inicio":
+            data_inicio_relatorio.value = data_formatada
+        elif selecionando_data_para == "fim":
+            data_fim_relatorio.value = data_formatada
+        
+        page.close(seletor_data_relatorio)
+        page.update()
+
+    def abrir_datepicker_relatorio(e):
+        """Abre o DatePicker e armazena se é para a data de início ou fim."""
+        global selecionando_data_para
+        selecionando_data_para = e.control.data
+        page.open(seletor_data_relatorio)
+
+    def definir_periodo_relatorio(e):
+        """Define as datas de início e fim com base nos botões de atalho."""
+        hoje = datetime.now()
+        periodo = e.control.data
+        
+        data_fim = hoje
+        
+        if periodo == "mes":
+            data_inicio = hoje.replace(day=1)
+        elif periodo == "3_meses":
+            data_inicio = hoje - relativedelta(months=3)
+        elif periodo == "6_meses":
+            data_inicio = hoje - relativedelta(months=6)
+        elif periodo == "ano":
+            data_inicio = hoje - relativedelta(years=1)
+        
+        data_inicio_relatorio.value = data_inicio.strftime('%d/%m/%Y')
+        data_fim_relatorio.value = data_fim.strftime('%d/%m/%Y')
+        page.update()
+
     # =====================================================================
     # ===================== FUNÇÕES DE CATEGORIAS (CRUD) ==================
     # =====================================================================
 
-    lista_categorias = ft.Column(spacing=10)
+    def carregar_e_exibir_categorias():
+        lista_categorias_view.controls.clear()
+        categorias_db = db.buscar_categorias_db(page)
+        if not categorias_db:
+            lista_categorias_view.controls.append(ft.Text("Nenhuma categoria cadastrada."))
+        else:
+            for categoria in categorias_db:
+                lista_categorias_view.controls.append(
+                    ft.ListTile(
+                        title=ft.Text(categoria['nome']),
+                        subtitle=ft.Text(categoria['tipo'], color="green" if categoria['tipo'] == 'Receita' else 'orange'),
+                        trailing=ft.IconButton(
+                            icon=ft.Icons.DELETE_OUTLINE,
+                            icon_color="red",
+                            data=categoria['id'],
+                            on_click=confirmar_delecao_categoria,
+                        )
+                    )
+                )
+        page.update()
 
-    def carregar_categorias_dropdown(tipo: str | None = None):
-        """
-        Retorna uma lista de ft.dropdown.Option com nomes das categorias.
-        Se tipo for 'Receita' ou 'Despesa', filtra.
-        """
-        cats = db.buscar_categorias_db(page, tipo)
-        if not cats:
-            return []
-        return [ft.dropdown.Option(c["nome"]) for c in cats]
-
-    def abrir_dialogo_nova_categoria(e):
-        nome = ft.TextField(label="Nome da Categoria")
-        tipo = ft.Dropdown(
+    def adicionar_nova_categoria(e):
+        # Esta função agora abre um diálogo, em vez de ler campos globais
+        nome_field = ft.TextField(label="Nome da Categoria")
+        tipo_dropdown = ft.Dropdown(
             label="Tipo",
-            options=[ft.dropdown.Option("Receita"), ft.dropdown.Option("Despesa")],
+            options=[
+                ft.dropdown.Option("Receita"),
+                ft.dropdown.Option("Despesa"),
+            ]
         )
 
-        def salvar(ev):
-            if not nome.value or not tipo.value:
-                page.snack_bar = ft.SnackBar(
-                    ft.Text("Preencha todos os campos!"), bgcolor="orange"
-                )
+        def salvar_click(ev):
+            nome = nome_field.value
+            tipo = tipo_dropdown.value
+            if not nome or not tipo:
+                page.snack_bar = ft.SnackBar(ft.Text("Nome e tipo são obrigatórios!"), bgcolor="orange")
                 page.snack_bar.open = True
                 page.update()
                 return
             try:
-                db.adicionar_categoria_db(page, nome.value.strip(), tipo.value)
+                db.adicionar_categoria_db(page, nome, tipo)
                 page.close(dialogo)
-                carregar_categorias_ui()
-                # Recarrega dropdown de categoria da área de transação
-                dd_categoria.options = carregar_categorias_dropdown()
+                carregar_e_exibir_categorias()
+                page.snack_bar = ft.SnackBar(ft.Text(f"Categoria '{nome}' adicionada!"), bgcolor="green")
+                page.snack_bar.open = True
                 page.update()
-            except Exception as ex:
-                page.snack_bar = ft.SnackBar(
-                    ft.Text(f"Erro: {ex}"), bgcolor="red"
-                )
+            except Exception:
+                page.snack_bar = ft.SnackBar(ft.Text("Erro: Categoria já existe."), bgcolor="red")
                 page.snack_bar.open = True
                 page.update()
 
         dialogo = ft.AlertDialog(
             modal=True,
             title=ft.Text("Nova Categoria"),
-            content=ft.Column([nome, tipo], tight=True),
+            content=ft.Column([nome_field, tipo_dropdown], tight=True),
             actions=[
-                ft.TextButton("Cancelar", on_click=lambda ev: page.close(dialogo)),
-                ft.TextButton("Salvar", on_click=salvar),
+                ft.TextButton("Cancelar", on_click=lambda _: page.close(dialogo)),
+                ft.TextButton("Salvar", on_click=salvar_click),
             ],
             actions_alignment=ft.MainAxisAlignment.END,
         )
         page.open(dialogo)
 
-    def abrir_dialogo_editar_categoria(categoria_row):
-        nome = ft.TextField(label="Nome da Categoria", value=categoria_row["nome"])
-        tipo = ft.Dropdown(
-            label="Tipo",
-            value=categoria_row["tipo"],
-            options=[ft.dropdown.Option("Receita"), ft.dropdown.Option("Despesa")],
-        )
+    def confirmar_delecao_categoria(e):
+        categoria_id = e.control.data
+        def deletar_click(ev):
+            db.deletar_categoria_db(page, categoria_id)
+            page.close(dlg_confirm)
+            carregar_e_exibir_categorias()
 
-        def salvar(ev):
-            if not nome.value or not tipo.value:
-                page.snack_bar = ft.SnackBar(
-                    ft.Text("Preencha todos os campos!"), bgcolor="orange"
-                )
-                page.snack_bar.open = True
-                page.update()
-                return
-            try:
-                db.atualizar_categoria_db(
-                    page, categoria_row["id"], nome.value.strip(), tipo.value
-                )
-                page.close(dialogo)
-                carregar_categorias_ui()
-                dd_categoria.options = carregar_categorias_dropdown()
-                page.update()
-            except Exception as ex:
-                page.snack_bar = ft.SnackBar(
-                    ft.Text(f"Erro: {ex}"), bgcolor="red"
-                )
-                page.snack_bar.open = True
-                page.update()
-
-        dialogo = ft.AlertDialog(
+        dlg_confirm = ft.AlertDialog(
             modal=True,
-            title=ft.Text("Editar Categoria"),
-            content=ft.Column([nome, tipo], tight=True),
+            title=ft.Text("Confirmar Exclusão"),
+            content=ft.Text("Tem certeza? Isto não afetará transações já existentes."),
             actions=[
-                ft.TextButton("Cancelar", on_click=lambda ev: page.close(dialogo)),
-                ft.TextButton("Salvar", on_click=salvar),
-            ],
-            actions_alignment=ft.MainAxisAlignment.END,
+                ft.TextButton("Cancelar", on_click=lambda _: page.close(dlg_confirm)),
+                ft.TextButton("Excluir", on_click=deletar_click)
+            ]
         )
-        page.open(dialogo)
-
-    def deletar_categoria(cid):
-        try:
-            db.deletar_categoria_db(page, cid)
-        except Exception as ex:
-            page.snack_bar = ft.SnackBar(
-                ft.Text(f"Erro ao excluir: {ex}"), bgcolor="red"
-            )
-            page.snack_bar.open = True
-        finally:
-            carregar_categorias_ui()
-            dd_categoria.options = carregar_categorias_dropdown()
-            page.update()
-
-    def carregar_categorias_ui():
-        lista_categorias.controls.clear()
-        categorias = db.buscar_categorias_db(page)
-        if not categorias:
-            lista_categorias.controls.append(
-                ft.Text("Nenhuma categoria cadastrada ainda.", color="grey")
-            )
-        else:
-            for c in categorias:
-                lista_categorias.controls.append(
-                    ft.Row(
-                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                        controls=[
-                            ft.Text(f"{c['nome']} ({c['tipo']})"),
-                            ft.Row(
-                                controls=[
-                                    ft.IconButton(
-                                        icon=ft.Icons.EDIT,
-                                        icon_color="blue",
-                                        tooltip="Editar",
-                                        on_click=lambda e, cr=c: abrir_dialogo_editar_categoria(
-                                            cr
-                                        ),
-                                    ),
-                                    ft.IconButton(
-                                        icon=ft.Icons.DELETE_OUTLINE,
-                                        icon_color="red",
-                                        tooltip="Excluir",
-                                        on_click=lambda e, cid=c["id"]: deletar_categoria(
-                                            cid
-                                        ),
-                                    ),
-                                ]
-                            ),
-                        ],
-                    )
-                )
-        page.update()
+        page.open(dlg_confirm)
 
     # =====================================================================
     # ==================== FUNÇÕES PRINCIPAIS / DASHBOARD =================
     # =====================================================================
+
+    
+
 
     def atualizar_views(e=None):
         """
@@ -910,7 +939,7 @@ def carregar_interface_principal(page: ft.Page):
             return
 
         # (Opcional) Validar se a categoria pertence ao tipo escolhido
-        categorias_do_tipo = [c.key for c in carregar_categorias_dropdown(tipo)]
+        categorias_do_tipo = [cat['nome'] for cat in db.buscar_categorias_db(page, tipo=tipo)]
         if categorias_do_tipo and dd_categoria.value not in categorias_do_tipo:
             page.snack_bar = ft.SnackBar(
                 ft.Text(
@@ -980,7 +1009,7 @@ def carregar_interface_principal(page: ft.Page):
 
         # (Opcional) Validar se a categoria pertence ao tipo escolhido na edição
         tipo = radio_group_tipo_edicao.value
-        categorias_do_tipo = [c.key for c in carregar_categorias_dropdown(tipo)]
+        categorias_do_tipo = [cat['nome'] for cat in db.buscar_categorias_db(page, tipo=tipo)]
         if categorias_do_tipo and dd_categoria.value not in categorias_do_tipo:
             page.snack_bar = ft.SnackBar(
                 ft.Text(
@@ -1031,6 +1060,22 @@ def carregar_interface_principal(page: ft.Page):
         historico_container.visible = not historico_container.visible
         page.update()
 
+    # main.py
+
+    def atualizar_opcoes_categoria(e):
+        """Força a atualização das opções do dropdown de categoria ao focar."""
+        print("--- ATUALIZANDO OPÇÕES DO DROPDOWN ---")
+        try:
+            categorias_db = db.buscar_categorias_db(page)
+            opcoes = [ft.dropdown.Option(cat['nome']) for cat in categorias_db]
+            dd_categoria.options = opcoes
+            print(f"Dropdown atualizado com {len(opcoes)} opções.")
+            page.update()
+        except Exception as ex:
+            print(f"ERRO AO ATUALIZAR OPÇÕES: {ex}")
+
+
+
     # =====================================================================
     # ======================= COMPONENTES DE INTERFACE =====================
     # =====================================================================
@@ -1049,7 +1094,9 @@ def carregar_interface_principal(page: ft.Page):
 
     # DatePicker
     seletor_data = ft.DatePicker(on_change=data_selecionada)
-    page.overlay.append(seletor_data)
+
+    seletor_data_relatorio = ft.DatePicker(on_change=data_relatorio_selecionada)
+    page.overlay.extend([file_picker_salvar_pdf, seletor_data, seletor_data_relatorio]) # Adicione-o ao overlay
 
     # -- Card de Resumo (Início) --
     txt_total_receitas = ft.Text(size=16, weight=ft.FontWeight.BOLD, color="green")
@@ -1131,6 +1178,8 @@ def carregar_interface_principal(page: ft.Page):
     dd_categoria = ft.Dropdown(
         label="Categoria",
         options=[],  # todas as categorias
+        expand=True
+
     )
 
     btn_add_receita = ft.ElevatedButton(
@@ -1183,7 +1232,17 @@ def carregar_interface_principal(page: ft.Page):
                     txt_descricao,
                     txt_valor,
                     ft.Row([txt_data_selecionada, btn_abrir_calendario]),
-                    dd_categoria,
+                    ft.Row(
+                        controls=[
+                            dd_categoria,
+                            ft.IconButton(
+                                icon=ft.Icons.SYNC,
+                                tooltip="Atualizar Categorias",
+                                on_click=atualizar_opcoes_categoria,
+                            )
+                        ],
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN
+                    ),
                     linha_botoes_adicionar,
                     linha_botoes_edicao,
                 ]
@@ -1325,37 +1384,49 @@ def carregar_interface_principal(page: ft.Page):
     )
 
     # Ajustes (com Backup/Restore e Gerenciar Categorias)
-    card_backup_restore = ft.Card(
+    card_relatorios = ft.Card(
         elevation=4,
         content=ft.Container(
-            padding=ft.padding.all(15),
-            content=ft.Column(
-                [
-                    ft.Text("Gerenciamento de Dados", weight=ft.FontWeight.BOLD),
-                    ft.ListTile(
-                        leading=ft.Icon(ft.Icons.UPLOAD_FILE),
-                        title=ft.Text("Fazer Backup dos Dados"),
-                        subtitle=ft.Text("Salva um arquivo de backup em local seguro."),
-                        on_click=lambda _: file_picker_salvar.save_file(
-                            dialog_title="Salvar Backup Como...",
-                            file_name="meu_app_financeiro_backup.db",
-                            allowed_extensions=["db"],
-                        ),
+            padding=15,
+            content=ft.Column([
+                ft.Text("Relatórios em PDF", weight=ft.FontWeight.BOLD),
+                ft.Text("Selecione um período para gerar o relatório."),
+
+                # Seletores de Data Manuais
+                ft.Row([
+                    ft.Text("De:"), data_inicio_relatorio,
+                    ft.IconButton(icon=ft.Icons.CALENDAR_MONTH, on_click=abrir_datepicker_relatorio, data="inicio"),
+                    ft.Text("Até:"), data_fim_relatorio,
+                    ft.IconButton(icon=ft.Icons.CALENDAR_MONTH, on_click=abrir_datepicker_relatorio, data="fim"),
+                ], alignment=ft.MainAxisAlignment.SPACE_AROUND),
+                
+                # Botões de Atalho
+                ft.Row([
+                    ft.ElevatedButton("Mês Atual", on_click=definir_periodo_relatorio, data="mes", expand=True),
+                    ft.ElevatedButton("3 Meses", on_click=definir_periodo_relatorio, data="3_meses", expand=True),
+                ]),
+                ft.Row([
+                    ft.ElevatedButton("6 Meses", on_click=definir_periodo_relatorio, data="6_meses", expand=True),
+                    ft.ElevatedButton("1 Ano", on_click=definir_periodo_relatorio, data="ano", expand=True),
+                ]),
+                
+                ft.Divider(height=20),
+                
+                # Botão principal para gerar
+                ft.ElevatedButton(
+                    "Gerar e Salvar PDF",
+                    icon=ft.Icons.PICTURE_AS_PDF,
+                    bgcolor=ft.Colors.RED_700,
+                    color=ft.Colors.WHITE,
+                    on_click=lambda _: file_picker_salvar_pdf.save_file(
+                        dialog_title="Salvar Relatório PDF Como...",
+                        file_name=f"relatorio_financeiro.pdf",
+                        allowed_extensions=["pdf"]
                     ),
-                    ft.Divider(height=5),
-                    ft.ListTile(
-                        leading=ft.Icon(ft.Icons.DOWNLOAD),
-                        title=ft.Text("Restaurar Backup"),
-                        subtitle=ft.Text("Restaura os dados a partir de um arquivo."),
-                        on_click=lambda _: file_picker_restaurar.pick_files(
-                            dialog_title="Selecionar Arquivo de Backup",
-                            allow_multiple=False,
-                            allowed_extensions=["db"],
-                        ),
-                    ),
-                ]
-            ),
-        ),
+                    expand=True
+                ),
+            ])
+        )
     )
 
     card_categorias = ft.Card(
@@ -1368,12 +1439,18 @@ def carregar_interface_principal(page: ft.Page):
                     ft.Row(
                         controls=[
                             ft.OutlinedButton(
-                                "Nova Categoria", icon=ft.Icons.ADD, on_click=abrir_dialogo_nova_categoria
+                                "Nova Categoria", icon=ft.Icons.ADD, on_click=adicionar_nova_categoria
                             ),
                         ],
                         alignment=ft.MainAxisAlignment.END,
                     ),
-                    lista_categorias,
+                    ft.Container(
+                        content=lista_categorias_view, # <-- Use o nome correto da variável aqui
+                        height=200, 
+                        border=ft.border.all(1, "grey"),
+                        border_radius=5,
+                        padding=10
+                    ),
                 ],
                 spacing=10,
             ),
@@ -1383,12 +1460,84 @@ def carregar_interface_principal(page: ft.Page):
     configuracoes_view = ft.Column(
         [
             ft.Text("Ajustes", size=24, weight=ft.FontWeight.BOLD),
-            card_backup_restore,
-            card_categorias,
+            
+            # NOVO Card de Relatórios com seleção de período
+            ft.Card(
+                elevation=4,
+                content=ft.Container(
+                    padding=15,
+                    content=ft.Column([
+                        ft.Text("Relatórios em PDF", weight=ft.FontWeight.BOLD),
+                        ft.Text("Selecione um período para gerar o relatório."),
+
+                        # Seletores de Data Manuais
+                        ft.Row([
+                            ft.Text("De:"), data_inicio_relatorio,
+                            ft.IconButton(icon=ft.Icons.CALENDAR_MONTH, on_click=abrir_datepicker_relatorio, data="inicio"),
+                            ft.Text("Até:"), data_fim_relatorio,
+                            ft.IconButton(icon=ft.Icons.CALENDAR_MONTH, on_click=abrir_datepicker_relatorio, data="fim"),
+                        ], alignment=ft.MainAxisAlignment.SPACE_AROUND),
+                        
+                        # Botões de Atalho para períodos
+                        ft.Row([
+                            ft.ElevatedButton("Mês Atual", on_click=definir_periodo_relatorio, data="mes", expand=True),
+                            ft.ElevatedButton("3 Meses", on_click=definir_periodo_relatorio, data="3_meses", expand=True),
+                        ]),
+                        ft.Row([
+                            ft.ElevatedButton("6 Meses", on_click=definir_periodo_relatorio, data="6_meses", expand=True),
+                            ft.ElevatedButton("1 Ano", on_click=definir_periodo_relatorio, data="ano", expand=True),
+                        ]),
+                        
+                        ft.Divider(height=20),
+                        
+                        # Botão principal para gerar o PDF
+                        ft.ElevatedButton(
+                            "Gerar e Salvar PDF",
+                            icon=ft.Icons.PICTURE_AS_PDF,
+                            bgcolor=ft.Colors.RED_700,
+                            color=ft.Colors.WHITE,
+                            on_click=lambda _: file_picker_salvar_pdf.save_file(
+                                dialog_title="Salvar Relatório PDF Como...",
+                                file_name=f"relatorio_financeiro.pdf",
+                                allowed_extensions=["pdf"]
+                            ),
+                            expand=True
+                        ),
+                    ])
+                )
+            ),
+            
+            # Card de Gerenciamento de Categorias (permanece igual)
+            ft.Card(
+                elevation=4,
+                content=ft.Container(
+                    padding=15,
+                    content=ft.Column([
+                        ft.Text("Gerenciar Categorias", weight=ft.FontWeight.BOLD),
+                        ft.Container(
+                            content=lista_categorias_view,
+                            height=200,
+                            border=ft.border.all(1, ft.Colors.with_opacity(0.5, "white")),
+                            border_radius=5,
+                            padding=10
+                        ),
+                        ft.Row(
+                            controls=[
+                                ft.ElevatedButton(
+                                    "Adicionar Categoria",
+                                    on_click=adicionar_nova_categoria,
+                                    icon=ft.Icons.ADD
+                                ),
+                            ],
+                            alignment=ft.MainAxisAlignment.END,
+                        ),
+                    ])
+                )
+            ),
         ],
         spacing=15,
         scroll=ft.ScrollMode.AUTO,
-        visible=False,
+        visible=False
     )
 
     # FAB global (visível só na Carteira)
@@ -1406,7 +1555,7 @@ def carregar_interface_principal(page: ft.Page):
         if index == 1:  # Dashboard
             atualizar_views()
         if index == 3:  # Ajustes
-            carregar_categorias_ui()
+            carregar_e_exibir_categorias()
 
         filtro_subcategoria_dashboard.value = "Todas"
 
@@ -1458,8 +1607,8 @@ def carregar_interface_principal(page: ft.Page):
     # Inicializações
     carregar_dados_iniciais()
     carregar_metas()
-    carregar_categorias_ui()  # pré-carrega lista em Ajustes
-    dd_categoria.options = carregar_categorias_dropdown()  # atualiza dropdown
+    carregar_e_exibir_categorias()  # pré-carrega lista em Ajustes
+    dd_categoria.options = [ft.dropdown.Option(cat['nome']) for cat in db.buscar_categorias_db(page)]  # atualiza dropdown
     page.floating_action_button.visible = False
     page.update()
 
