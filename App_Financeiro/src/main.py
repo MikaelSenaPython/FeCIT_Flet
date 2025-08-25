@@ -5,10 +5,19 @@ import itertools
 import database as db
 import os
 from calendar import month_name
-from fpdf import FPDF
+from docx import Document
+from docx.shared import Inches, Pt
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.enum.table import WD_TABLE_ALIGNMENT
 from dateutil.relativedelta import relativedelta
+import matplotlib
 import matplotlib.pyplot as plt   
+matplotlib.use("Agg") # <-- ADICIONE ESTA LINHA
 import traceback
+import sys
+import os
+from fpdf import FPDF
+from fpdf.enums import XPos, YPos
 
 # =============================================================================
 # CONSTANTES E CONFIGURAÇÕES
@@ -27,13 +36,13 @@ def criar_imagem_grafico(dados_categoria, titulo, caminho_arquivo, tipo):
 
     labels = dados_categoria.keys()
     sizes = dados_categoria.values()
-    
+
     # Lógica das cores
     if tipo == 'Receita':
         cores = ['#4CAF50', '#8BC34A', '#CDDC39', '#C5E1A5', '#AED581']
     else:
         cores = ['#F44336', '#E57373', '#EF5350', '#FFCDD2', '#FF8A80']
-    
+
     fig, ax = plt.subplots()
     ax.pie(sizes, labels=labels, autopct='%1.1f%%', startangle=90, colors=cores)
     ax.axis('equal')
@@ -505,6 +514,10 @@ class FinancialApp:
         
         self.seletor_data = ft.DatePicker(on_change=self.data_selecionada)
         self.seletor_data_relatorio = ft.DatePicker(on_change=self.data_relatorio_selecionada)
+        
+        # =================================================================
+        # LINHA IMPORTANTE ADICIONADA/CORRIGIDA AQUI
+        # =================================================================
         self.file_picker_salvar_pdf = ft.FilePicker(on_result=self.salvar_pdf_result)
 
     def _setup_page(self):
@@ -1408,16 +1421,30 @@ class FinancialApp:
         self.navigate(None)
 
     # =============================================================================
-    # MÉTODOS DE RELATÓRIOS PDF
+    # MÉTODOS DE RELATÓRIOS WORD
     # =============================================================================
 
     def salvar_pdf_result(self, e: ft.FilePickerResultEvent):
-        """Função chamada quando o usuário seleciona um local para salvar o PDF."""
-        if e.path:
-            self.gerar_relatorio_pdf(e.path)
+        """
+        Função chamada pelo FilePicker DEPOIS que o usuário escolhe onde salvar o arquivo.
+        """
+        # Verifica se o usuário selecionou um local e não clicou em "Cancelar"
+        if e.path or e.files:
+            # Chama a função principal que realmente constrói o PDF,
+            # passando o evento completo para ela.
+            self.gerar_relatorio_pdf(e)
+        else:
+            # Ação opcional caso o usuário cancele
+            print("Operação de salvar PDF foi cancelada.")
+            self.page.snack_bar = ft.SnackBar(ft.Text("Operação cancelada."), bgcolor="orange")
+            self.page.snack_bar.open = True
+            self.page.update()
 
-    def gerar_relatorio_pdf(self, caminho_final):
+    
+    def gerar_relatorio_pdf(self, e: ft.FilePickerResultEvent):
         """Gera um relatório PDF completo e dinâmico com base nos filtros da tela de Relatórios."""
+        
+        # Validação inicial
         if not self.data_inicio_relatorio.value or not self.data_fim_relatorio.value:
             self.page.snack_bar = ft.SnackBar(ft.Text("Por favor, selecione um período de datas."), bgcolor="orange")
             self.page.snack_bar.open = True
@@ -1450,26 +1477,47 @@ class FinancialApp:
             # Construção do PDF
             pdf = FPDF()
             pdf.add_page()
-            pdf.set_font("Arial", "B", 16)
+
+            # --- CARREGANDO AS FONTES REGULAR E NEGRITO ---
+            try:
+                # Pega o diretório onde o script main.py está (a pasta 'src')
+                script_dir = os.path.dirname(os.path.abspath(__file__))
+                # Monta o caminho para a pasta 'assets' que está DENTRO de 'src'
+                font_folder = os.path.join(script_dir, "assets")
+
+                # Registra a fonte 'DejaVu' para o estilo NORMAL ("")
+                pdf.add_font("DejaVu", "", os.path.join(font_folder, "DejaVuSans.ttf"))
+                
+                # Registra a mesma fonte 'DejaVu' para o estilo NEGRITO ("B")
+                pdf.add_font("DejaVu", "B", os.path.join(font_folder, "DejaVuSans-Bold.ttf"))
+                
+                # Agora você pode usar set_font com "" ou "B" sem problemas
+                pdf.set_font("DejaVu", "B", 16)
+
+            except Exception as e:
+                print(f"ERRO AO CARREGAR FONTES DEJA VU: {e}. Usando Helvetica.")
+                # Se a fonte DejaVu falhar, usa Helvetica como plano B (sem acentos)
+                pdf.set_font("Helvetica", "B", 16)
+            # ---------------------------------------------------
 
             if not transacoes_relatorio:
                 pdf.cell(0, 10, "Relatório Financeiro", 0, 1, "C")
-                pdf.set_font("Arial", "", 12)
+                pdf.set_font("DejaVu", "", 12)  # <<< CORRIGIDO
                 pdf.cell(0, 10, f"Período: {data_inicio.strftime('%d/%m/%Y')} a {data_fim.strftime('%d/%m/%Y')}", 0, 1, "C")
                 pdf.ln(20)
-                pdf.set_font("Arial", "I", 12)
+                pdf.set_font("DejaVu", "", 12)  # <<< CORRIGIDO (Itálico não foi carregado, usando normal)
                 pdf.cell(0, 10, "Nenhuma transação encontrada para os filtros selecionados.", 0, 1, "C")
             else:
-                # Análise dos dados
+                # Análise dos dados (continua igual)
                 dados_despesas_cat = {
                     c: sum(float(t['valor']) for t in transacoes_relatorio 
-                          if t['tipo'] == 'Despesa' and t['categoria'] == c) 
+                           if t['tipo'] == 'Despesa' and t['categoria'] == c) 
                     for c in set(t['categoria'] for t in transacoes_relatorio if t['tipo'] == 'Despesa')
                 }
                 
                 dados_receitas_cat = {
                     c: sum(float(t['valor']) for t in transacoes_relatorio 
-                          if t['tipo'] == 'Receita' and t['categoria'] == c) 
+                           if t['tipo'] == 'Receita' and t['categoria'] == c) 
                     for c in set(t['categoria'] for t in transacoes_relatorio if t['tipo'] == 'Receita')
                 }
                 
@@ -1482,7 +1530,7 @@ class FinancialApp:
                     titulo_pdf = "Relatório Financeiro Geral"
                 
                 pdf.cell(0, 10, titulo_pdf, 0, 1, "C")
-                pdf.set_font("Arial", "", 12)
+                pdf.set_font("DejaVu", "", 12)  # <<< CORRIGIDO
                 pdf.cell(0, 10, f"Período: {data_inicio.strftime('%d/%m/%Y')} a {data_fim.strftime('%d/%m/%Y')}", 0, 1, "C")
                 pdf.ln(10)
 
@@ -1493,19 +1541,64 @@ class FinancialApp:
                     dados_para_resumo = dados_receitas_cat if tipo_filtro == "Receita" else dados_despesas_cat
                     self._gerar_relatorio_tipo(pdf, dados_para_resumo, tipo_filtro, grafico_temp_path)
                 else:
-                    self._gerar_relatorio_geral(pdf, dados_receitas_cat, dados_despesas_cat, grafico_despesas_path, grafico_receitas_path)
+                    # Resumo do período
+                    receitas_total = sum(dados_receitas_cat.values())
+                    despesas_total = sum(dados_despesas_cat.values())
+                    saldo = receitas_total - despesas_total
+                    
+                    pdf.set_font("DejaVu", "", 12)  # <<< CORRIGIDO
+                    pdf.cell(0, 10, "Resumo do Período", 0, 1, "L")
+                    pdf.set_font("DejaVu", "", 11)  # <<< CORRIGIDO
+                    pdf.cell(0, 7, f"Total de Receitas: R$ {receitas_total:,.2f}", 0, 1, "L")
+                    pdf.cell(0, 7, f"Total de Despesas: R$ {despesas_total:,.2f}", 0, 1, "L")
 
-                # Tabela detalhada
+                    # MUDANÇA: Adiciona uma célula invisível com borda superior para criar a linha
+                    pdf.cell(0, 3, "", "T", 1, "L") 
+
+                    pdf.set_font("DejaVu", "B", 11)  # <<< CORRIGIDO
+                    pdf.cell(0, 7, f"Saldo Final: R$ {saldo:,.2f}", 0, 1, "L")
+                    pdf.ln(10)
+                    
+                    # Gráficos (a lógica aqui dentro está correta)
+                    if criar_imagem_grafico(dados_receitas_cat, "Composição de Receitas", grafico_receitas_path, "Receita"):
+                        pdf.image(grafico_receitas_path, x=10, y=None, w=180)
+                    
+                    self._gerar_lista_de_totais_por_categoria(pdf, dados_receitas_cat)
+
+                    pdf.add_page()
+                    
+                    if criar_imagem_grafico(dados_despesas_cat, "Composição de Despesas", grafico_despesas_path, "Despesa"):
+                        pdf.image(grafico_despesas_path, x=10, y=None, w=180)
+                    
+                    self._gerar_lista_de_totais_por_categoria(pdf, dados_despesas_cat)
+
                 if cat_filtro == "Todas":
                     pdf.add_page()
+                
                 self._gerar_tabela_transacoes(pdf, transacoes_relatorio)
-            
-            # Salvar o arquivo PDF
-            pdf.output(caminho_final)
+                
+            # Salvar (continua igual)
+            pdf_bytes = pdf.output()
+            if self.page.platform == ft.PagePlatform.ANDROID:
+                if e.files:
+                    e.files[0].write(pdf_bytes)
+                    self.page.update()
+                else:
+                    self.page.snack_bar = ft.SnackBar(ft.Text("Erro: Nenhum arquivo selecionado no Android."), bgcolor="red")
+                    self.page.snack_bar.open = True
+            else:
+                if e.path:
+                    with open(e.path, "wb") as f:
+                        f.write(pdf_bytes)
+                else:
+                    self.page.snack_bar = ft.SnackBar(ft.Text("Erro: Nenhum caminho de arquivo selecionado no Desktop."), bgcolor="red")
+                    self.page.snack_bar.open = True
+
             self.page.snack_bar = ft.SnackBar(ft.Text("Relatório PDF salvo com sucesso!"), bgcolor="green")
             self.page.snack_bar.open = True
         
         except Exception as ex:
+            # (continua igual)
             traceback_str = traceback.format_exc()
             print(f"ERRO CRÍTICO AO GERAR PDF: {traceback_str}")
             dlg_erro = ft.AlertDialog(
@@ -1518,20 +1611,39 @@ class FinancialApp:
                 actions=[ft.TextButton("Fechar", on_click=lambda _: self.page.close(dlg_erro))]
             )
             self.page.open(dlg_erro)
+            self.page.update()
         
         finally:
-            # Limpeza dos arquivos temporários
+            # (continua igual)
             for arquivo in [grafico_despesas_path, grafico_receitas_path, grafico_temp_path]:
                 if os.path.exists(arquivo):
                     os.remove(arquivo)
 
         self.page.update()
+    
+    def _gerar_relatorio_tipo(self, pdf, dados_para_resumo, tipo_filtro, grafico_temp_path):
+        """Gera análise por tipo (Receita ou Despesa) no documento PDF."""
+        total_geral = sum(dados_para_resumo.values())
+        pdf.set_font("DejaVu", "", 12)
+        pdf.cell(0, 10, f"Resumo de {tipo_filtro}s por Categoria", 0, 1, "L")
+        pdf.set_font("DejaVu", "", 11)
+        
+        for categoria, valor in sorted(dados_para_resumo.items()):
+            pdf.cell(0, 7, f"- {categoria.encode('latin-1', 'replace').decode('latin-1')}: R$ {valor:,.2f}", 0, 1, "L")
+        
+        pdf.set_font("DejaVu", "", 11) # Usando estilo normal
+        pdf.cell(0, 7, f"Total de {tipo_filtro}s: R$ {total_geral:,.2f}", "T", 1, "L")
+        pdf.ln(10)
+        
+        if criar_imagem_grafico(dados_para_resumo, f"Composição de {tipo_filtro}s", grafico_temp_path, tipo_filtro):
+            pdf.image(grafico_temp_path, x=10, y=None, w=180)
+
 
     def _gerar_relatorio_categoria(self, pdf, transacoes_relatorio, transacoes_no_periodo, cat_filtro, tipo_filtro):
-        """Gera análise específica para uma categoria"""
+        """Gera análise específica para uma categoria no documento PDF."""
         total_categoria = sum(float(t['valor']) for t in transacoes_relatorio)
         num_transacoes = len(transacoes_relatorio)
-        media_transacao = total_categoria / num_transacoes
+        media_transacao = total_categoria / num_transacoes if num_transacoes > 0 else 0
         maior_transacao = max(transacoes_relatorio, key=lambda x: float(x['valor']))
         menor_transacao = min(transacoes_relatorio, key=lambda x: float(x['valor']))
         
@@ -1549,9 +1661,11 @@ class FinancialApp:
                 "Total Gasto", "Maior Despesa", "Menor Despesa", "Gasto Médio", "despesas"
             )
         
-        pdf.set_font("Arial", "B", 12)
+        pdf.set_font("DejaVu", "", 12)
         pdf.cell(0, 10, "Análise da Categoria", 0, 1, "L")
-        pdf.set_font("Arial", "", 11)
+        pdf.set_font("DejaVu", "", 11)
+        
+        # Usando encode para garantir que caracteres especiais sejam processados
         pdf.cell(0, 7, f"- {texto_total} na Categoria: R$ {total_categoria:,.2f}", 0, 1, "L")
         pdf.cell(0, 7, f"- Número de Transações: {num_transacoes}", 0, 1, "L")
         pdf.cell(0, 7, f"- {texto_media} por Transação: R$ {media_transacao:,.2f}", 0, 1, "L")
@@ -1559,66 +1673,52 @@ class FinancialApp:
         pdf.cell(0, 7, f"- {texto_menor}: R$ {float(menor_transacao['valor']):,.2f} ({menor_transacao['descricao'].encode('latin-1', 'replace').decode('latin-1')})", 0, 1, "L")
         pdf.cell(0, 7, f"- Relevância: Esta categoria representa {relevancia:.1f}% do total de suas {texto_relevancia} no período.", 0, 1, "L")
         pdf.ln(10)
+    def _gerar_lista_de_totais_por_categoria(self, pdf, dados_categoria):
+        """Cria uma lista formatada com os totais de cada categoria no PDF."""
+        pdf.ln(5) # Adiciona um pequeno espaço entre o gráfico e a lista
+        pdf.set_font("DejaVu", "", 12) # Usando estilo normal para o título
+        pdf.cell(0, 8, "Totais por Categoria:", 0, 1, "L")
+        pdf.set_font("DejaVu", "", 10) # Tamanho menor para os itens da lista
 
-    def _gerar_relatorio_tipo(self, pdf, dados_para_resumo, tipo_filtro, grafico_temp_path):
-        """Gera análise por tipo (Receita ou Despesa)"""
-        total_geral = sum(dados_para_resumo.values())
-        pdf.set_font("Arial", "B", 12)
-        pdf.cell(0, 10, f"Resumo de {tipo_filtro}s por Categoria", 0, 1, "L")
-        pdf.set_font("Arial", "", 11)
-        
-        for categoria, valor in sorted(dados_para_resumo.items()):
-            pdf.cell(0, 7, f"- {categoria}: R$ {valor:,.2f}", 0, 1, "L")
-        
-        pdf.set_font("Arial", "B", 11)
-        pdf.cell(0, 7, f"Total de {tipo_filtro}s: R$ {total_geral:,.2f}", "T", 1, "L")
-        pdf.ln(10)
-        
-        if criar_imagem_grafico(dados_para_resumo, f"Composição de {tipo_filtro}s", grafico_temp_path, tipo_filtro):
-            pdf.image(grafico_temp_path, x=10, y=None, w=180)
+        if not dados_categoria:
+            pdf.cell(0, 6, "  - Nenhuma categoria para exibir.", 0, 1, "L")
+            pdf.ln(5)
+            return
 
-    def _gerar_relatorio_geral(self, pdf, dados_receitas_cat, dados_despesas_cat, grafico_despesas_path, grafico_receitas_path):
-        """Gera análise geral (Receitas + Despesas)"""
-        receitas_total = sum(dados_receitas_cat.values())
-        despesas_total = sum(dados_despesas_cat.values())
-        saldo = receitas_total - despesas_total
+        # Ordena as categorias pelo valor, da maior para a menor
+        for categoria, valor in sorted(dados_categoria.items(), key=lambda item: item[1], reverse=True):
+            # Formata a linha e usa encode/decode para garantir compatibilidade
+            texto_linha = f"  - {categoria}: R$ {valor:,.2f}"
+            pdf.cell(0, 7, texto_linha.encode('latin-1', 'replace').decode('latin-1'), 0, 1, "L")
         
-        pdf.set_font("Arial", "B", 12)
-        pdf.cell(0, 10, "Resumo do Período", 0, 1, "L")
-        pdf.set_font("Arial", "", 11)
-        pdf.cell(0, 7, f"Total de Receitas: R$ {receitas_total:,.2f}", 0, 1, "L")
-        pdf.cell(0, 7, f"Total de Despesas: R$ {despesas_total:,.2f}", 0, 1, "L")
-        pdf.set_font("Arial", "B", 11)
-        pdf.cell(0, 7, f"Saldo Final: R$ {saldo:,.2f}", 0, 1, "L")
-        pdf.ln(10)
-        
-        if criar_imagem_grafico(dados_despesas_cat, "Composição de Despesas", grafico_despesas_path, "Despesa"):
-            pdf.image(grafico_despesas_path, x=10, y=None, w=180)
-        
-        if criar_imagem_grafico(dados_receitas_cat, "Composição de Receitas", grafico_receitas_path, "Receita"):
-            pdf.image(grafico_receitas_path, x=10, y=None, w=180)
+        pdf.ln(5) # Adiciona um espaço extra no final da lista
 
     def _gerar_tabela_transacoes(self, pdf, transacoes_relatorio):
-        """Gera tabela detalhada das transações"""
-        pdf.set_font("Arial", "B", 12)
+        """Gera tabela detalhada das transações."""
+        pdf.set_font("DejaVu", "", 12)
         pdf.cell(0, 10, "Detalhes das Transações", 0, 1, "L")
-        pdf.set_font("Arial", "B", 10)
+        
+        # Cabeçalho da tabela
+        pdf.set_font("DejaVu", "", 10) # Usando estilo normal
         pdf.cell(25, 8, "Data", 1)
         pdf.cell(85, 8, "Descrição", 1)
         pdf.cell(35, 8, "Categoria", 1)
         pdf.cell(40, 8, "Valor (R$)", 1)
         pdf.ln()
         
-        pdf.set_font("Arial", "", 10)
+        # Linhas da tabela
+        pdf.set_font("DejaVu", "", 10)
         for t in sorted(transacoes_relatorio, key=lambda x: datetime.strptime(x['data'], "%d/%m/%Y")):
+            # Usando encode para garantir que caracteres especiais sejam processados
             descricao = t['descricao'].encode('latin-1', 'replace').decode('latin-1')
             categoria = t['categoria'].encode('latin-1', 'replace').decode('latin-1')
             
+            # Definir cor do texto (opcional, mas bom para visualização)
             if t['tipo'] == 'Receita':
-                pdf.set_text_color(0, 128, 0)
+                pdf.set_text_color(0, 128, 0) # Verde
                 valor_str = f"+{float(t['valor']):,.2f}"
             else:
-                pdf.set_text_color(255, 0, 0)
+                pdf.set_text_color(255, 0, 0) # Vermelho
                 valor_str = f"-{float(t['valor']):,.2f}"
             
             pdf.cell(25, 8, t['data'], 1)
@@ -1627,17 +1727,20 @@ class FinancialApp:
             pdf.cell(40, 8, valor_str, 1)
             pdf.ln()
         
+        # Volta a cor do texto para preto
         pdf.set_text_color(0, 0, 0)
 
     def iniciar_salvamento_pdf(self, e):
-        """Gera o nome dinâmico do arquivo e abre o diálogo para salvar."""
+        """Gera o nome dinâmico do arquivo e abre o diálogo para salvar o PDF."""
+        
+        # Validação para garantir que um período foi selecionado
         if not self.data_inicio_relatorio.value or not self.data_fim_relatorio.value:
             self.page.snack_bar = ft.SnackBar(ft.Text("Por favor, selecione um período de datas primeiro."), bgcolor="orange")
             self.page.snack_bar.open = True
             self.page.update()
             return
 
-        # Lógica para gerar o nome do arquivo
+        # Lógica para gerar o nome do arquivo dinamicamente
         tipo_filtro = self.filtro_tipo_relatorio.value
         cat_filtro = self.filtro_categoria_relatorio.value
         data_inicio = datetime.strptime(self.data_inicio_relatorio.value, "%d/%m/%Y")

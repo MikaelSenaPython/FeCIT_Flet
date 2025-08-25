@@ -1,34 +1,26 @@
 [project]
-name = "Meu App Financeiro"
-version = "0.1.0"
-description = ""
+name = "app_financeiro"
+version = "0.2.0"
+description = "Meu app financeiro"
 readme = "README.md"
 requires-python = ">=3.9"
 authors = [
-    { name = "Mikael Sena", email = "senamikael464@gmail.com" }
+  { name = "Mikael Sena", email = "senamikael464@gmail.com" }
 ]
 dependencies = [
-    "flet==0.28.3"
+  "flet==0.28.3",
+  "python-dateutil",
+  "pandas",
+  "matplotlib",
+  "python-docx",
+  "fpdf2",
 ]
 
 [tool.flet]
 org = "com.mycompany"
 product = "Meu App Financeiro"
-company = "Flet"
-copyright = "Copyright (C) 2025 by Flet"
+company = "App do Mikael"
 
 [tool.flet.app]
 path = "src"
-# Add the icon path here
-icon = "src/assets/icon.png" # Adjust path as per your icon location
-
-[tool.uv]
-dev-dependencies = [
-    "flet[all]==0.28.3",
-]
-
-[tool.poetry]
-package-mode = false
-
-[tool.poetry.group.dev.dependencies]
-flet = {extras = ["all"], version = "0.28.3"}
+icon = "src/assets/icon.png"

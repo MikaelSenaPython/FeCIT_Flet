@@ -162,4 +162,7 @@ cython_debug/
 # Flet
 storage/
 # Banco de dados local
-finance.db
+financeiro.db
+flet.yml
+pyproject.toml
+requirements.txt
