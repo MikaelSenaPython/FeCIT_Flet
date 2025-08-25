@@ -1,23 +1,23 @@
 # main.py
-import flet as ft
-from datetime import datetime, timedelta
-import itertools
-import database as db
-import os
-from calendar import month_name
-from docx import Document
-from docx.shared import Inches, Pt
-from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.enum.table import WD_TABLE_ALIGNMENT
+
 from dateutil.relativedelta import relativedelta
-import matplotlib
-import matplotlib.pyplot as plt   
-matplotlib.use("Agg") # <-- ADICIONE ESTA LINHA
-import traceback
-import sys
-import os
+from datetime import datetime, timedelta
 from fpdf import FPDF
 from fpdf.enums import XPos, YPos
+from calendar import month_name
+import database as db
+import flet as ft
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt  
+import traceback
+import itertools
+import shutil
+import sys
+import os
+
+# ANTES DAS NOTAS!!!!
+# ANTES DAS NOTAS!!!!
 
 # =============================================================================
 # CONSTANTES E CONFIGURAÇÕES
@@ -106,9 +106,18 @@ class FinancialApp:
         self.id_em_edicao = ft.Text(value=None, visible=False)
         self.selecionando_data_para = ""
         
-        # Inicializar componentes de UI
+        # --- MUDANÇA IMPORTANTE ---
+        # 1. Primeiro, criamos os componentes principais da UI
         self._init_ui_components()
+
+        # 2. Em seguida, criamos os seletores de arquivo e diálogos
+        #    Esta função precisa ser chamada ANTES de _setup_page
+        self._init_dialogs_and_pickers()
+        
+        # 3. Agora, configuramos a página, pois todos os componentes já existem
         self._setup_page()
+        
+        # 4. Por último, carregamos os dados
         self._init_data()
 
     def _init_ui_components(self):
@@ -117,7 +126,7 @@ class FinancialApp:
         self._init_form_components()
         self._init_cards()
         self._init_views()
-        self._init_dialogs_and_pickers()
+        # self._init_dialogs_and_pickers() # <-- APAGUE OU COMENTE ESTA LINHA
 
     def _init_text_components(self):
         """Inicializa componentes de texto"""
@@ -429,31 +438,58 @@ class FinancialApp:
         """Inicializa views de configuração e relatórios"""
         self.lista_categorias_view = ft.ListView(expand=True, spacing=10)
         
+        # Card 1: Gerenciamento de Categorias
+        card_gerenciar_categorias = ft.Card(
+            elevation=4,
+            content=ft.Container(
+                padding=15,
+                content=ft.Column([
+                    ft.Text("Gerenciar Categorias", weight=ft.FontWeight.BOLD),
+                    ft.Container(
+                        content=self.lista_categorias_view,
+                        height=200,
+                        border=ft.border.all(1, ft.Colors.with_opacity(0.5, "white")),
+                        border_radius=5,
+                        padding=10
+                    ),
+                    ft.Row([
+                        ft.ElevatedButton(
+                            "Adicionar Categoria",
+                            on_click=self.adicionar_nova_categoria,
+                            icon=ft.Icons.ADD
+                        ),
+                    ], alignment=ft.MainAxisAlignment.END),
+                ])
+            )
+        )
+
+        # Card 2: Backup e Restauração
+        card_backup_restauracao = ft.Card(
+            elevation=4,
+            content=ft.Container(
+                padding=15,
+                content=ft.Column([
+                    ft.Text("Gerenciamento de Dados", weight=ft.FontWeight.BOLD),
+                    ft.ListTile(
+                        leading=ft.Icon(ft.Icons.UPLOAD_FILE),
+                        title=ft.Text("Fazer Backup"),
+                        subtitle=ft.Text("Salva uma cópia de segurança dos seus dados."),
+                        on_click=self.iniciar_backup,
+                    ),
+                    ft.ListTile(
+                        leading=ft.Icon(ft.Icons.DOWNLOAD),
+                        title=ft.Text("Restaurar Backup"),
+                        subtitle=ft.Text("Substitui os dados atuais por um backup."),
+                        on_click=self.iniciar_restauracao,
+                    ),
+                ])
+            )
+        )
+        
         self.configuracoes_view = ft.Column([
             ft.Text("Ajustes", size=24, weight=ft.FontWeight.BOLD),
-            ft.Card(
-                elevation=4,
-                content=ft.Container(
-                    padding=15,
-                    content=ft.Column([
-                        ft.Text("Gerenciar Categorias", weight=ft.FontWeight.BOLD),
-                        ft.Container(
-                            content=self.lista_categorias_view,
-                            height=200,
-                            border=ft.border.all(1, ft.Colors.with_opacity(0.5, "white")),
-                            border_radius=5,
-                            padding=10
-                        ),
-                        ft.Row([
-                            ft.ElevatedButton(
-                                "Adicionar Categoria",
-                                on_click=self.adicionar_nova_categoria,
-                                icon=ft.Icons.ADD
-                            ),
-                        ], alignment=ft.MainAxisAlignment.END),
-                    ])
-                )
-            ),
+            card_gerenciar_categorias,
+            card_backup_restauracao,
         ], spacing=15, scroll=ft.ScrollMode.AUTO, visible=False)
         
         self.relatorios_view = ft.Column([
@@ -515,10 +551,10 @@ class FinancialApp:
         self.seletor_data = ft.DatePicker(on_change=self.data_selecionada)
         self.seletor_data_relatorio = ft.DatePicker(on_change=self.data_relatorio_selecionada)
         
-        # =================================================================
-        # LINHA IMPORTANTE ADICIONADA/CORRIGIDA AQUI
-        # =================================================================
+        # FilePickers para PDF e backup
         self.file_picker_salvar_pdf = ft.FilePicker(on_result=self.salvar_pdf_result)
+        self.file_picker_salvar_backup = ft.FilePicker(on_result=self.backup_salvo)
+        self.file_picker_abrir_backup = ft.FilePicker(on_result=self.restauracao_concluida)
 
     def _setup_page(self):
         """Configura a página principal"""
@@ -566,7 +602,9 @@ class FinancialApp:
         
         # Overlay
         self.page.overlay.extend([
-            self.file_picker_salvar_pdf, 
+            self.file_picker_salvar_pdf,
+            self.file_picker_salvar_backup,
+            self.file_picker_abrir_backup,
             self.seletor_data, 
             self.seletor_data_relatorio
         ])
@@ -590,7 +628,6 @@ class FinancialApp:
                 ],
             )
         )
-
     def _init_data(self):
         """Inicializa dados do banco"""
         db.criar_tabelas(self.page)
@@ -1758,6 +1795,98 @@ class FinancialApp:
             file_name=nome_final_arquivo,
             allowed_extensions=["pdf"]
         )
+
+    # =============================================================================
+    # MÉTODOS DE BACKUP E RESTAURAÇÃO
+    # =============================================================================
+
+    def iniciar_backup(self, e):
+        """Inicia o processo de backup abrindo o seletor de arquivos para salvar."""
+        self.file_picker_salvar_backup.save_file(
+            dialog_title="Salvar Backup Como...",
+            file_name=f"backup_financeiro_{datetime.now().strftime('%Y-%m-%d')}.db",
+            allowed_extensions=["db"]
+        )
+
+    def backup_salvo(self, e: ft.FilePickerResultEvent):
+        """Callback executado após o usuário escolher onde salvar o backup."""
+        if not e.path:
+            self.page.snack_bar = ft.SnackBar(ft.Text("Operação de backup cancelada."), bgcolor="orange")
+            self.page.snack_bar.open = True
+            self.page.update()
+            return
+
+        try:
+            # O arquivo de banco de dados do app
+            origem = "financeiro.db"
+            # O local que o usuário escolheu
+            destino = e.path
+            
+            shutil.copy(origem, destino)
+            
+            self.page.snack_bar = ft.SnackBar(ft.Text(f"Backup salvo com sucesso em: {destino}"), bgcolor="green")
+        except Exception as ex:
+            self.page.snack_bar = ft.SnackBar(ft.Text(f"Erro ao salvar backup: {ex}"), bgcolor="red")
+        
+        self.page.snack_bar.open = True
+        self.page.update()
+
+
+    def iniciar_restauracao(self, e):
+        """Mostra um diálogo de confirmação antes de iniciar a restauração."""
+        
+        def confirmar_restauracao(ev):
+            self.page.close(dialogo_confirmacao)
+            self.file_picker_abrir_backup.pick_files(
+                dialog_title="Selecione o arquivo de backup (.db)",
+                allow_multiple=False,
+                allowed_extensions=["db"]
+            )
+
+        def cancelar_restauracao(ev):
+            self.page.close(dialogo_confirmacao)
+
+        dialogo_confirmacao = ft.AlertDialog(
+            modal=True,
+            title=ft.Text("⚠️ ATENÇÃO!"),
+            content=ft.Text("Restaurar um backup irá substituir TODOS os seus dados atuais. Esta ação não pode ser desfeita. Deseja continuar?"),
+            actions=[
+                ft.TextButton("Cancelar", on_click=cancelar_restauracao),
+                ft.TextButton("Confirmar e Restaurar", on_click=confirmar_restauracao, style=ft.ButtonStyle(color="red")),
+            ]
+        )
+        self.page.open(dialogo_confirmacao)
+
+    def restauracao_concluida(self, e: ft.FilePickerResultEvent):
+        """Callback executado após o usuário escolher um arquivo de backup para restaurar."""
+        if not e.files:
+            self.page.snack_bar = ft.SnackBar(ft.Text("Operação de restauração cancelada."), bgcolor="orange")
+            self.page.snack_bar.open = True
+            self.page.update()
+            return
+            
+        try:
+            # O arquivo de backup que o usuário escolheu
+            origem = e.files[0].path
+            # O local do banco de dados do app
+            destino = "financeiro.db"
+
+            # Aqui seria um bom lugar para fechar a conexão com o banco, se o seu app a mantivesse aberta.
+            # Como suas funções de banco de dados abrem e fecham a cada chamada, não é estritamente necessário.
+            
+            shutil.copy(origem, destino)
+            
+            # Recarregar todos os dados da aplicação do novo banco
+            self.carregar_dados_iniciais()
+            self.carregar_metas()
+            self.carregar_e_exibir_categorias()
+
+            self.page.snack_bar = ft.SnackBar(ft.Text("Backup restaurado com sucesso!"), bgcolor="green")
+        except Exception as ex:
+            self.page.snack_bar = ft.SnackBar(ft.Text(f"Erro ao restaurar backup: {ex}"), bgcolor="red")
+
+        self.page.snack_bar.open = True
+        self.page.update()
 
     # =============================================================================
     # MÉTODO DE NAVEGAÇÃO
