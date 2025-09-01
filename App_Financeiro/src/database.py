@@ -1,6 +1,7 @@
 import flet as ft
 import sqlite3
 from datetime import datetime
+import os
 
 def criar_tabelas(page: ft.Page):
     """Cria as tabelas necessárias no banco de dados"""
@@ -78,6 +79,9 @@ def adicionar_transacao_db(page: ft.Page, tipo, descricao, valor, categoria, dat
 
 def buscar_transacoes_db(page: ft.Page, termo_busca=None):
     """Busca todas as transações ou filtra por termo de busca"""
+    # ADICIONE A LINHA ABAIXO
+    print(f"DEBUG DB: Buscando em '{os.path.abspath('financeiro.db')}'")
+
     conn = sqlite3.connect("financeiro.db")
     cursor = conn.cursor()
     

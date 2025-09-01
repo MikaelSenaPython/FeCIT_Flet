@@ -663,6 +663,8 @@ class FinancialApp:
 
     def carregar_dados_iniciais(self):
         self.todas_transacoes = db.buscar_transacoes_db(self.page)
+        # ADICIONE A LINHA ABAIXO
+        print(f"DEBUG APP: {len(self.todas_transacoes)} transações carregadas do banco.")
         self.atualizar_views()
 
     def atualizar_views(self, e=None):
@@ -675,6 +677,9 @@ class FinancialApp:
             if datetime.strptime(t["data"], "%d/%m/%Y").month == self.mes_selecionado.month
             and datetime.strptime(t["data"], "%d/%m/%Y").year == self.mes_selecionado.year
         ]
+
+        # ADICIONE A LINHA ABAIXO
+        print(f"DEBUG APP: {len(transacoes_do_mes)} transações encontradas para o mês atual.")
 
         self.atualizar_resumo_inicio(transacoes_do_mes)
         self.txt_mes_ano.value = f"{month_name[self.mes_selecionado.month].capitalize()} {self.mes_selecionado.year}"
